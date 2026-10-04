@@ -2,6 +2,9 @@
 # Start script for ManOSalwaKnot Python FastAPI Backend
 cd "$(dirname "$0")"
 
+# Automatically release port 3001 if already running
+fuser -k 3001/tcp 2>/dev/null || true
+
 echo "🚀 Starting ManOSalwaKnot Backend on http://localhost:3001..."
 
 if [ -f ".venv/bin/uvicorn" ]; then
