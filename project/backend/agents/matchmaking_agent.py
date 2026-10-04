@@ -43,17 +43,39 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-async def run_matchmaking_agent(user_id: str, budget: int = None, people: int = None, preferences: list = None, lat: float = None, lng: float = None) -> dict:
+from services.redis_client import get_all_redis_food_posts, save_food_post_to_redis
+
+async def run_matchmaking_agent(user_id: str, budget: int = None, people: int = None, preferences: list = None, lat: float = None, lng: float = None, local_posts: list = None) -> dict:
     budget_val = budget if budget and budget > 0 else 500
     people_val = people if people and people > 0 else 2
 
-    # Fetch available food
+    # Collect available food from local_posts, Redis, and Supabase
     available_food = []
+    seen_ids = set()
+
+    if local_posts:
+        for p in local_posts:
+            pid = str(p.get("id", ""))
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                available_food.append(p)
+                save_food_post_to_redis(p)
+
+    for p in get_all_redis_food_posts():
+        pid = str(p.get("id", ""))
+        if pid and pid not in seen_ids:
+            seen_ids.add(pid)
+            available_food.append(p)
+
     if supabase_client:
         try:
             res = supabase_client.table('food_posts').select('*, seller:profiles!user_id(name, rating, role)').eq('status', 'available').execute()
-            if res.data and len(res.data) > 0:
-                available_food = res.data
+            if res.data:
+                for p in res.data:
+                    pid = str(p.get("id", ""))
+                    if pid and pid not in seen_ids:
+                        seen_ids.add(pid)
+                        available_food.append(p)
         except Exception as e:
             print(f"Supabase error in matchmaking: {e}")
 

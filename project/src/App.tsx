@@ -1204,22 +1204,59 @@ function AIMatchmaker({ onSelectFood }: { onSelectFood: (post: FoodPostWithSelle
 
   async function handleMatch() {
     setBusy(true);
+    const local = getStoredLocalPosts();
+    const userBudget = Number(budget) || 500;
+    const userPeople = Number(people) || 1;
     try {
       const res = await getMatchmaking({
         userId: profile?.id || 'anonymous',
-        budget: Number(budget) || 500,
-        people: Number(people) || 4,
+        budget: userBudget,
+        people: userPeople,
         lat: 24.8607,
-        lng: 67.0011
+        lng: 67.0011,
+        localPosts: local
       }, session?.access_token);
-      setResult(res);
+
+      // Prioritize any local / user-created drops that fit the budget
+      const matchingLocal = local.filter(p => p.price <= userBudget).map(p => ({
+        foodId: p.id,
+        foodName: p.food_name,
+        score: 99,
+        reason: `Your posted surplus drop! Perfectly fits within your Rs ${userBudget} budget for ${userPeople} person(s).`,
+        price: p.price,
+        sellerName: typeof p.seller === 'object' && p.seller?.name ? p.seller.name : (profile?.name || 'Your Kitchen'),
+        distance: 0.2,
+        timeLeft: '3-4h'
+      }));
+
+      const combined = [...matchingLocal, ...(res.recommendations || []).filter((r: any) => !matchingLocal.some(m => m.foodId === r.foodId))];
+      setResult({
+        ...res,
+        recommendations: combined,
+        aiInsights: matchingLocal.length > 0
+          ? `Found your posted ${matchingLocal[0].foodName} for Rs ${matchingLocal[0].price}! It fits your Rs ${userBudget} budget perfectly.`
+          : res.aiInsights
+      });
     } catch {
+      const matchingLocal = local.filter(p => p.price <= userBudget).map(p => ({
+        foodId: p.id,
+        foodName: p.food_name,
+        score: 99,
+        reason: `Your posted drop! Fits Rs ${userBudget} budget.`,
+        price: p.price,
+        sellerName: profile?.name || 'Your Kitchen',
+        distance: 0.2,
+        timeLeft: '3h'
+      }));
       setResult({
         recommendations: [
-          { foodId: 'mock-1', foodName: 'Chicken Biryani', score: 96, reason: 'High protein portion feeds 4 comfortably at Rs 87/person.', price: 350, sellerName: 'Nawab Kitchen', distance: 2.3, timeLeft: '3h' },
+          ...matchingLocal,
+          { foodId: 'mock-1', foodName: 'Chicken Biryani', score: 96, reason: 'High protein portion feeds comfortably.', price: 350, sellerName: 'Nawab Kitchen', distance: 2.3, timeLeft: '3h' },
           { foodId: 'mock-2', foodName: 'Paneer Wraps', score: 88, reason: 'Quick ready-to-eat wraps with 52% discount.', price: 120, sellerName: 'Green Leaf Cafe', distance: 3.1, timeLeft: '5h' }
         ],
-        aiInsights: `For your Rs ${budget} budget feeding ${people} people, Chicken Biryani offers the best value at Rs ${Math.round(Number(budget) / Number(people))}/person!`
+        aiInsights: matchingLocal.length > 0
+          ? `Your posted ${matchingLocal[0].foodName} (Rs ${matchingLocal[0].price}) matches your Rs ${userBudget} budget!`
+          : `For your Rs ${userBudget} budget, meals start as low as Rs 80–120!`
       });
     }
     setBusy(false);

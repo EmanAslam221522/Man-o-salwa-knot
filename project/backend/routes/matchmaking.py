@@ -15,15 +15,16 @@ class MatchmakingRequest(BaseModel):
     preferences: Optional[List[str]] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    localPosts: Optional[List[dict]] = None
 
 @router.post("")
 async def matchmaking_endpoint(req: MatchmakingRequest):
-    # Cache key based on input
+    # If no local posts, check cache
     cache_key = f"match:{req.userId}:{req.budget}:{req.people}:{req.lat}:{req.lng}"
-    
-    cached = cache_get(cache_key)
-    if cached:
-        return cached
+    if not req.localPosts:
+        cached = cache_get(cache_key)
+        if cached:
+            return cached
         
     result = await run_matchmaking_agent(
         user_id=req.userId,
@@ -31,8 +32,10 @@ async def matchmaking_endpoint(req: MatchmakingRequest):
         people=req.people,
         preferences=req.preferences,
         lat=req.lat,
-        lng=req.lng
+        lng=req.lng,
+        local_posts=req.localPosts
     )
     
-    cache_set(cache_key, result, ttl_seconds=300) # 5 min TTL
+    if not req.localPosts:
+        cache_set(cache_key, result, ttl_seconds=300)
     return result

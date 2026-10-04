@@ -44,7 +44,7 @@ export async function sendChat(message: string, userId?: string, language?: 'en'
   };
 }
 
-export async function getMatchmaking(params: { userId: string, budget?: number, people?: number, preferences?: string[], lat?: number, lng?: number }, token?: string) {
+export async function getMatchmaking(params: { userId: string, budget?: number, people?: number, preferences?: string[], lat?: number, lng?: number, localPosts?: any[] }, token?: string) {
   try {
     const resp = await fetch(`${API_URL}/api/matchmaking`, {
       method: 'POST',

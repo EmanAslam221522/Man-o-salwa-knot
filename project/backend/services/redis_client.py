@@ -75,3 +75,27 @@ def get_workspace_messages(food_post_id: str) -> list:
     except Exception as e:
         logger.error(f"Redis get_workspace_messages error: {e}")
         return []
+
+def save_food_post_to_redis(post: dict):
+    if not redis_client or not post: return
+    try:
+        post_id = str(post.get("id", ""))
+        if not post_id: return
+        redis_client.set(f"post:{post_id}", json.dumps(post))
+        redis_client.sadd("posts:active_ids", post_id)
+    except Exception as e:
+        logger.error(f"Redis save_food_post error: {e}")
+
+def get_all_redis_food_posts() -> list:
+    if not redis_client: return []
+    try:
+        ids = redis_client.smembers("posts:active_ids")
+        posts = []
+        for pid in ids:
+            p_val = redis_client.get(f"post:{pid}")
+            if p_val:
+                posts.append(json.loads(p_val))
+        return posts
+    except Exception as e:
+        logger.error(f"Redis get_all_redis_food_posts error: {e}")
+        return []
