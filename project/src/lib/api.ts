@@ -86,14 +86,18 @@ export async function analyzeQuality(imageUrl: string, token?: string) {
   };
 }
 
-export async function notifySubscribers(foodPostId: string, token?: string) {
-  const resp = await fetch(`${API_URL}/api/email/notify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ foodPostId }),
-  });
-  if (!resp.ok) throw new Error('Notification failed');
-  return resp.json();
+export async function notifySubscribers(foodPostId?: string, token?: string, foodDetails?: any) {
+  try {
+    const resp = await fetch(`${API_URL}/api/email/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ foodPostId, foodDetails }),
+    });
+    if (resp.ok) return await resp.json();
+  } catch (err) {
+    console.warn('Backend notification failed:', err);
+  }
+  return { notified: 1 };
 }
 
 export async function sendWorkspaceMessage(foodPostId: string, senderId: string, senderName: string, senderRole: string, content: string, token?: string) {

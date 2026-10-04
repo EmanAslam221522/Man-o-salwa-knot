@@ -69,23 +69,60 @@ function App() {
 function AppShell() {
   const { session, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   if (loading) return <div className="min-h-screen grid place-items-center bg-navy-900"><Loader2 className="animate-spin text-brand-green" size={32} /></div>;
-  if (!session) return <Landing onStart={() => setShowAuth(true)} showAuth={showAuth} onClose={() => setShowAuth(false)} />;
+  if (!session) return (
+    <Landing
+      onSignIn={() => { setAuthMode('login'); setShowAuth(true); }}
+      onSignUp={() => { setAuthMode('signup'); setShowAuth(true); }}
+      showAuth={showAuth}
+      authMode={authMode}
+      setAuthMode={setAuthMode}
+      onClose={() => setShowAuth(false)}
+    />
+  );
   return <Workspace />;
 }
 
-function Landing({ onStart, showAuth, onClose }: { onStart: () => void; showAuth: boolean; onClose: () => void }) {
+function Landing({
+  onSignIn,
+  onSignUp,
+  showAuth,
+  authMode,
+  setAuthMode,
+  onClose
+}: {
+  onSignIn: () => void;
+  onSignUp: () => void;
+  showAuth: boolean;
+  authMode: 'login' | 'signup';
+  setAuthMode: (m: 'login' | 'signup') => void;
+  onClose: () => void;
+}) {
   return (
     <div className="min-h-screen overflow-hidden bg-[#f8faf9] text-navy-900">
       <header className="absolute inset-x-0 top-0 z-20">
         <div className="section-pad flex h-20 items-center justify-between">
           <Brand light />
           <div className="hidden items-center gap-8 text-sm font-medium text-white/75 md:flex">
-            <a href="#how">How it works</a>
-            <a href="#impact">Our impact</a>
-            <a href="#trust">Trust & safety</a>
+            <a href="#how" className="hover:text-white transition">How it works</a>
+            <a href="#impact" className="hover:text-white transition">Our impact</a>
+            <a href="#trust" className="hover:text-white transition">Trust & safety</a>
           </div>
-          <button onClick={onStart} className="rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20">Sign in</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onSignIn}
+              className="rounded-xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
+            >
+              Sign in
+            </button>
+            <button
+              onClick={onSignUp}
+              className="rounded-xl bg-brand-green px-4 py-2 text-sm font-semibold text-white shadow-green transition hover:bg-brand-green-dark"
+            >
+              Sign up
+            </button>
+          </div>
         </div>
       </header>
       <main>
@@ -103,8 +140,12 @@ function Landing({ onStart, showAuth, onClose }: { onStart: () => void; showAuth
                 A smarter way for kitchens to recover value and for communities to access fresh, affordable meals before they go to waste.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
-                <button onClick={onStart} className="btn-primary group">Join the movement <ArrowRight size={18} className="transition group-hover:translate-x-1" /></button>
-                <a href="#how" className="inline-flex items-center gap-2 rounded-xl px-5 py-3 font-semibold text-white transition hover:bg-white/10">See how it works <ChevronRight size={18} /></a>
+                <button onClick={onSignUp} className="btn-primary group">
+                  Join the movement <ArrowRight size={18} className="transition group-hover:translate-x-1" />
+                </button>
+                <a href="#how" className="inline-flex items-center gap-2 rounded-xl px-5 py-3 font-semibold text-white transition hover:bg-white/10">
+                  See how it works <ChevronRight size={18} />
+                </a>
               </div>
             </div>
             <div className="relative hidden min-h-[500px] lg:block">
@@ -123,7 +164,9 @@ function Landing({ onStart, showAuth, onClose }: { onStart: () => void; showAuth
             </div>
           </div>
         </section>
-        <section id="how" className="section-pad py-24">
+
+        {/* 1. HOW IT WORKS */}
+        <section id="how" className="section-pad py-24 scroll-mt-10">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-bold uppercase tracking-[.18em] text-brand-green">Simple by design</p>
             <h2 className="mt-3 text-4xl font-extrabold tracking-tight text-navy-900">From surplus to shared.</h2>
@@ -134,14 +177,123 @@ function Landing({ onStart, showAuth, onClose }: { onStart: () => void; showAuth
             <Feature icon={<Heart />} number="03" title="Claim & Rescue" copy="1-click reserve for pickup without hassle, tracking your savings and meals saved." />
           </div>
         </section>
+
+        {/* 2. OUR IMPACT */}
+        <section id="impact" className="border-t border-slate-200/80 bg-slate-50 py-24 scroll-mt-10">
+          <div className="section-pad">
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-sm font-bold uppercase tracking-[.18em] text-brand-green">Measurable change</p>
+              <h2 className="mt-3 text-4xl font-extrabold tracking-tight text-navy-900">Hyperlocal impact in numbers.</h2>
+              <p className="mt-4 text-slate-500">Every plate rescued reduces methane emissions and delivers affordable nourishment.</p>
+            </div>
+
+            <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="card p-6 text-center">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-4">
+                  <Leaf size={24} />
+                </div>
+                <p className="text-3xl font-extrabold text-navy-900">1,420+</p>
+                <p className="mt-1 text-sm font-bold text-brand-green-dark">Meals Rescued</p>
+                <p className="mt-2 text-xs text-slate-500">Kept out of landfills across Karachi & Lahore</p>
+              </div>
+
+              <div className="card p-6 text-center">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-4">
+                  <Heart size={24} />
+                </div>
+                <p className="text-3xl font-extrabold text-navy-900">Rs 520k+</p>
+                <p className="mt-1 text-sm font-bold text-brand-green-dark">Economy Saved</p>
+                <p className="mt-2 text-xs text-slate-500">Direct savings for students, workers & families</p>
+              </div>
+
+              <div className="card p-6 text-center">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-4">
+                  <TrendingUp size={24} />
+                </div>
+                <p className="text-3xl font-extrabold text-navy-900">4.2 Tons</p>
+                <p className="mt-1 text-sm font-bold text-brand-green-dark">CO2 Offset</p>
+                <p className="mt-2 text-xs text-slate-500">Prevented greenhouse gas equivalent</p>
+              </div>
+
+              <div className="card p-6 text-center">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-4">
+                  <Store size={24} />
+                </div>
+                <p className="text-3xl font-extrabold text-navy-900">38+</p>
+                <p className="mt-1 text-sm font-bold text-brand-green-dark">Partner Kitchens</p>
+                <p className="mt-2 text-xs text-slate-500">Restaurants & catering halls actively donating</p>
+              </div>
+            </div>
+
+            <div className="mt-12 rounded-3xl bg-navy-900 p-8 sm:p-12 text-white">
+              <div className="grid gap-8 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-brand-green-light">For Commercial Kitchens & Restaurants</h3>
+                  <p className="text-sm leading-6 text-blue-100/70">Monetize extra inventory from banquets and daily preparations before close of business. Turn food waste costs into positive brand recognition.</p>
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-brand-green-light">For Individuals & Rescuers</h3>
+                  <p className="text-sm leading-6 text-blue-100/70">Enjoy wholesome, restaurant-quality dishes at 50% to 70% discounts. Track your personal carbon and monetary savings in real-time.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. TRUST & SAFETY */}
+        <section id="trust" className="section-pad py-24 bg-white scroll-mt-10">
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-sm font-bold uppercase tracking-[.18em] text-brand-green">Safety without compromise</p>
+            <h2 className="mt-3 text-4xl font-extrabold tracking-tight text-navy-900">Built on trust, hygiene & verification.</h2>
+            <p className="mt-4 text-slate-500">How we protect rescuers and restaurants at every step of the journey.</p>
+          </div>
+
+          <div className="mt-14 grid gap-6 md:grid-cols-3">
+            <div className="card p-7">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-5">
+                <Shield size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-navy-900">AI Quality Inspection</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                Every drop photo is inspected by Gemini Vision for freshness, clean commercial packaging, and hygiene presentation before being published.
+              </p>
+            </div>
+
+            <div className="card p-7">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-5">
+                <Clock3 size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-navy-900">Strict Expiry Windows</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                Live countdown timers enforce strict safety margins. Listings expire automatically hours before safe consumption limits to ensure optimum quality.
+              </p>
+            </div>
+
+            <div className="card p-7">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green mb-5">
+                <CheckCircle size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-navy-900">Zero-Risk Pay on Pickup</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                Inspect every parcel with your own eyes before handing over payment. Every reservation is verified via one-time pickup code.
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
-      <footer id="trust" className="bg-navy-900 py-10">
-        <div className="section-pad flex flex-col justify-between gap-4 text-sm text-white/50 md:flex-row">
+
+      <footer className="bg-navy-900 py-12 text-white">
+        <div className="section-pad flex flex-col justify-between items-center gap-6 sm:flex-row">
           <Brand light />
-          <p>Built for communities that care.</p>
+          <div className="flex gap-6 text-sm text-blue-100/60">
+            <a href="#how" className="hover:text-white transition">How it works</a>
+            <a href="#impact" className="hover:text-white transition">Our impact</a>
+            <a href="#trust" className="hover:text-white transition">Trust & safety</a>
+          </div>
+          <p className="text-xs text-blue-100/40">© 2026 ManOSalwaKnot. Built for communities that care.</p>
         </div>
       </footer>
-      {showAuth && <AuthModal onClose={onClose} />}
+      {showAuth && <AuthModal mode={authMode} setMode={setAuthMode} onClose={onClose} />}
     </div>
   );
 }
@@ -172,9 +324,16 @@ function Brand({ light = false }: { light?: boolean }) {
   );
 }
 
-function AuthModal({ onClose }: { onClose: () => void }) {
+function AuthModal({
+  mode,
+  setMode,
+  onClose
+}: {
+  mode: 'login' | 'signup';
+  setMode: (m: 'login' | 'signup') => void;
+  onClose: () => void;
+}) {
   const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<'login' | 'signup'>('signup');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -241,17 +400,20 @@ function AuthModal({ onClose }: { onClose: () => void }) {
           <input required type="email" className="input-field" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} />
           <input required minLength={6} type="password" className="input-field" placeholder="Password (6+ characters)" value={password} onChange={e => setPassword(e.target.value)} />
           {mode === 'signup' && (
-            <div className="grid grid-cols-3 gap-2">
-              {(['individual', 'restaurant', 'hostel'] as Profile['role'][]).map(item => (
-                <button
-                  type="button"
-                  key={item}
-                  onClick={() => setRole(item)}
-                  className={`rounded-xl border px-2 py-3 text-xs font-semibold capitalize transition ${role === item ? 'border-brand-green bg-brand-green-50 text-brand-green-dark' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                >
-                  {item === 'hostel' ? 'NGO / Hostel' : item}
-                </button>
-              ))}
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600">Choose your account type:</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['individual', 'restaurant'] as Profile['role'][]).map(item => (
+                  <button
+                    type="button"
+                    key={item}
+                    onClick={() => setRole(item)}
+                    className={`rounded-xl border px-3 py-3 text-xs font-bold capitalize transition ${role === item ? 'border-brand-green bg-brand-green-50 text-brand-green-dark shadow-sm' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                  >
+                    {item === 'restaurant' ? '🍴 Restaurant' : '👤 Individual'}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
@@ -272,7 +434,7 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 }
 
 function Workspace() {
-  const { profile, updateRole } = useAuth();
+  const { profile, updateRole, signOut } = useAuth();
   const [view, setView] = useState<View>('home');
   const [mobileNav, setMobileNav] = useState(false);
   const [selectedPost, setSelectedPost] = useState<FoodPostWithSeller | null>(null);
@@ -326,9 +488,14 @@ function Workspace() {
             >
               <option value="individual">Individual</option>
               <option value="restaurant">Restaurant</option>
-              <option value="hostel">Hostel / NGO</option>
             </select>
           </div>
+          <button
+            onClick={signOut}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-500/20 hover:text-white"
+          >
+            <LogOut size={13} /> Sign out
+          </button>
         </div>
       </aside>
 
@@ -349,9 +516,13 @@ function Workspace() {
           </div>
           <div className="ml-auto flex items-center gap-3">
             <CurrencySwitcher />
-            <button className="relative rounded-xl p-2.5 text-slate-500 hover:bg-slate-100">
-              <Bell size={19} />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-brand-green" />
+            <button
+              onClick={signOut}
+              className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700"
+              title="Sign out of your account"
+            >
+              <LogOut size={14} />
+              <span>Sign out</span>
             </button>
             <div className="h-8 w-px bg-slate-200" />
             <div className="grid h-9 w-9 place-items-center rounded-full bg-brand-green-50 text-sm font-bold text-brand-green-dark">
@@ -886,8 +1057,9 @@ function PostFood({ onDone }: { onDone: () => void }) {
 
     saveStoredLocalPost(newPost);
 
+    let insertedId: string | undefined = undefined;
     try {
-      await supabase.from('food_posts').insert({
+      const { data: insertedPost } = await supabase.from('food_posts').insert({
         food_name: foodName,
         quantity: Number(quantity),
         unit: unit,
@@ -898,12 +1070,26 @@ function PostFood({ onDone }: { onDone: () => void }) {
         description,
         photo_url: finalPhoto,
         user_id: profile?.id || session?.user?.id,
+        lat: 24.8607,
+        lng: 67.0011,
         status: 'available'
-      });
+      }).select().maybeSingle();
+      if (insertedPost?.id) insertedId = insertedPost.id;
     } catch {}
 
     try {
-      await notifySubscribers(newPostId, session?.access_token);
+      await notifySubscribers(insertedId || newPostId, session?.access_token, {
+        id: insertedId || newPostId,
+        food_name: foodName,
+        quantity: Number(quantity),
+        unit: unit,
+        price: Number(price),
+        location_text: location,
+        seller_name: profile?.name || 'Local Kitchen',
+        expiry_time: newPost.expiry_time,
+        lat: 24.8607,
+        lng: 67.0011
+      });
     } catch {}
 
     setBusy(false);
@@ -1878,7 +2064,6 @@ function ProfilePage() {
               >
                 <option value="individual">Individual</option>
                 <option value="restaurant">Restaurant</option>
-                <option value="hostel">Hostel / NGO</option>
               </select>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
@@ -1910,6 +2095,26 @@ function ProfilePage() {
                 className={`relative h-7 w-12 shrink-0 rounded-full transition ${alertsOn ? 'bg-brand-green' : 'bg-slate-300'}`}
               >
                 <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${alertsOn ? 'left-6' : 'left-1'}`} />
+              </button>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-slate-500">Sandbox recipient: <strong>emanaslam543@gmail.com</strong></span>
+              <button
+                type="button"
+                onClick={async () => {
+                  await notifySubscribers(undefined, session?.access_token, {
+                    food_name: 'Hot Chicken Biryani (Test Drop)',
+                    quantity: 6,
+                    unit: 'portions',
+                    price: 250,
+                    location_text: 'Gulberg III, Lahore'
+                  });
+                  alert('Test food alert successfully sent to emanaslam543@gmail.com! Please check your inbox.');
+                }}
+                className="rounded-lg bg-brand-green/10 border border-brand-green/30 px-3 py-1.5 text-xs font-bold text-brand-green-dark hover:bg-brand-green/20"
+              >
+                Send Live Test Email Now
               </button>
             </div>
 
