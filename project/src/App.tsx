@@ -272,7 +272,7 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 }
 
 function Workspace() {
-  const { profile } = useAuth();
+  const { profile, updateRole } = useAuth();
   const [view, setView] = useState<View>('home');
   const [mobileNav, setMobileNav] = useState(false);
   const [selectedPost, setSelectedPost] = useState<FoodPostWithSeller | null>(null);
@@ -286,14 +286,13 @@ function Workspace() {
             { id: 'home', label: 'Overview', icon: <Compass size={19} /> },
             { id: 'discover', label: 'Discover food', icon: <Search size={19} /> },
             { id: 'matchmaker', label: 'AI Matchmaker', icon: <Sparkles size={19} /> },
-            { id: 'post', label: 'Post surplus', icon: <Plus size={19} />, roles: ['restaurant', 'hostel'] },
+            { id: 'post', label: 'Post surplus', icon: <Plus size={19} /> },
             { id: 'assistant', label: 'Ask Salwa', icon: <Bot size={19} /> },
             { id: 'history', label: 'My activity', icon: <Package size={19} /> },
             { id: 'quality', label: 'Food quality AI', icon: <Shield size={19} /> },
-            { id: 'workspace', label: 'Business chat', icon: <MessageSquare size={19} />, roles: ['restaurant', 'hostel'] },
+            { id: 'workspace', label: 'Business chat', icon: <MessageSquare size={19} /> },
             { id: 'profile', label: 'Profile', icon: <UserRound size={19} /> },
-          ] as { id: View; label: string; icon: ReactNode; roles?: string[] }[])
-            .filter(item => !item.roles || item.roles.includes(profile?.role ?? 'individual'))
+          ] as { id: View; label: string; icon: ReactNode }[])
             .map(item => (
               <button
                 key={item.id}
@@ -304,18 +303,31 @@ function Workspace() {
                 <span>{item.label}</span>
                 {item.id === 'assistant' && <span className="ml-auto rounded-full bg-brand-green px-1.5 py-0.5 text-[10px] font-bold text-white">AI</span>}
                 {item.id === 'matchmaker' && <span className="ml-auto rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">New</span>}
+                {item.id === 'quality' && <span className="ml-auto rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">Vision</span>}
               </button>
             ))}
         </div>
-        <div className="border-t border-white/10 pt-4">
+        <div className="border-t border-white/10 pt-4 space-y-2.5">
           <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
             <div className="grid h-9 w-9 place-items-center rounded-full bg-brand-green text-sm font-bold text-white">
               {profile?.name?.slice(0, 1).toUpperCase() ?? 'U'}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-white">{profile?.name ?? 'Rescuer'}</p>
               <p className="text-xs capitalize text-blue-100/50">{profile?.role ?? 'individual'} · {profile?.tier ?? 'free'}</p>
             </div>
+          </div>
+          <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+            <span className="text-[11px] font-medium text-blue-100/60">Switch Role:</span>
+            <select
+              value={profile?.role || 'individual'}
+              onChange={e => updateRole(e.target.value as any)}
+              className="rounded-lg bg-navy-900 px-2 py-1 text-[11px] font-semibold text-brand-green-light border border-white/20 focus:outline-none cursor-pointer"
+            >
+              <option value="individual">Individual</option>
+              <option value="restaurant">Restaurant</option>
+              <option value="hostel">Hostel / NGO</option>
+            </select>
           </div>
         </div>
       </aside>
@@ -1657,13 +1669,37 @@ function BusinessWorkspace() {
   useEffect(() => {
     if (!profile) return;
     const local = getStoredLocalPosts();
-    setPosts(local);
+    const demoDrop: FoodPostWithSeller = {
+      id: 'active-drop-101',
+      user_id: profile?.id || 'seller-1',
+      food_name: 'Biryani & Chicken Rolls (Active Drop)',
+      quantity: 12,
+      unit: 'portions',
+      price: 250,
+      original_price: 500,
+      expiry_time: new Date(Date.now() + 4 * 3600000).toISOString(),
+      location_text: 'Gulberg III, Lahore',
+      description: 'High quality banquet surplus ready for immediate pickup coordination.',
+      photo_url: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=800&auto=format&fit=crop',
+      status: 'available',
+      lat: 31.5204,
+      lng: 74.3587,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      seller: { id: profile?.id || 'seller-1', name: profile?.name || 'Grand Kitchen', rating: 4.9, rating_count: 15, role: 'restaurant' }
+    };
+    const initialPosts = local.length > 0 ? local : [demoDrop];
+    setPosts(initialPosts);
+    setSelectedPost(initialPosts[0].id);
+
     supabase.from('food_posts').select('*, seller:profiles!user_id(id,name,rating,rating_count,role)')
       .eq('user_id', profile.id)
       .order('created_at', { ascending: false }).limit(10)
       .then(({ data }) => {
         if (data?.length) {
-          setPosts(prev => [...data as unknown as FoodPostWithSeller[], ...prev.filter(p => !data.some((d: any) => d.id === p.id))]);
+          const combined = [...data as unknown as FoodPostWithSeller[], ...initialPosts.filter(p => !data.some((d: any) => d.id === p.id))];
+          setPosts(combined);
+          setSelectedPost(combined[0].id);
         }
       });
   }, [profile]);
@@ -1778,7 +1814,7 @@ function BusinessWorkspace() {
 }
 
 function ProfilePage() {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, updateRole } = useAuth();
   const [alertsOn, setAlertsOn] = useState(false);
   const [alertRadius, setAlertRadius] = useState('3');
   const [alertBusy, setAlertBusy] = useState(false);
@@ -1834,8 +1870,16 @@ function ProfilePage() {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Member role</p>
-              <p className="mt-1 font-bold capitalize">{profile?.role}</p>
+              <p className="text-xs text-slate-500">Active role</p>
+              <select
+                value={profile?.role || 'individual'}
+                onChange={e => updateRole(e.target.value as any)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold capitalize text-navy-900 shadow-sm cursor-pointer"
+              >
+                <option value="individual">Individual</option>
+                <option value="restaurant">Restaurant</option>
+                <option value="hostel">Hostel / NGO</option>
+              </select>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-xs text-slate-500">Plan</p>

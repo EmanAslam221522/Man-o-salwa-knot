@@ -16,6 +16,7 @@ interface AuthState {
   ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  updateRole: (role: Profile['role']) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -117,9 +118,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session) await loadProfile(session.user.id);
   }
 
+  async function updateRole(role: Profile['role']) {
+    setProfile(prev => (prev ? { ...prev, role } : null));
+    if (profile?.id) {
+      try {
+        await supabase.from('profiles').update({ role }).eq('id', profile.id);
+      } catch {
+        /* silent fallback */
+      }
+    }
+  }
+
   return (
     <AuthContext.Provider
-      value={{ session, profile, loading, signIn, signUp, signOut, refreshProfile }}
+      value={{ session, profile, loading, signIn, signUp, signOut, refreshProfile, updateRole }}
     >
       {children}
     </AuthContext.Provider>
