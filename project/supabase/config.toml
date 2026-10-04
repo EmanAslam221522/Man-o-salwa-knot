@@ -1,0 +1,5 @@
+[functions.notify-food-posted]
+verify_jwt = true
+
+[functions.salwa-chat]
+verify_jwt = true
