@@ -1,4 +1,4 @@
-export type UserRole = 'restaurant' | 'hostel' | 'individual';
+export type UserRole = 'restaurant' | 'hostel' | 'individual' | 'admin';
 export type UserTier = 'free' | 'prime' | 'ngo';
 export type FoodStatus = 'available' | 'reserved' | 'sold' | 'expired';
 export type PaymentMethod = 'cash' | 'upi' | 'card';

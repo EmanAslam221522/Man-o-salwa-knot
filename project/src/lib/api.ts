@@ -100,20 +100,90 @@ export async function notifySubscribers(foodPostId?: string, token?: string, foo
   return { notified: 1 };
 }
 
-export async function sendWorkspaceMessage(foodPostId: string, senderId: string, senderName: string, senderRole: string, content: string, token?: string) {
-  const resp = await fetch(`${API_URL}/api/workspace/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ foodPostId, senderId, senderName, senderRole, content }),
-  });
-  if (!resp.ok) throw new Error('Send message failed');
-  return resp.json();
+export async function sendWorkspaceMessage(
+  foodPostId: string,
+  senderId: string,
+  senderName: string,
+  senderRole: string,
+  content: string,
+  token?: string
+) {
+  const localMsg: WorkspaceMessage = {
+    id: 'ws-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    foodPostId,
+    senderId,
+    senderName,
+    senderRole,
+    content,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    const raw = localStorage.getItem('salwa_workspace_' + foodPostId);
+    const msgs: WorkspaceMessage[] = raw ? JSON.parse(raw) : [];
+    msgs.push(localMsg);
+    localStorage.setItem('salwa_workspace_' + foodPostId, JSON.stringify(msgs));
+  } catch {}
+
+  try {
+    const resp = await fetch(`${API_URL}/api/workspace/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ foodPostId, senderId, senderName, senderRole, content }),
+    });
+    if (resp.ok) return await resp.json();
+  } catch (err) {
+    console.warn('Backend workspace API unreachable, message saved locally:', err);
+  }
+  return localMsg;
 }
 
 export async function getWorkspaceMessages(foodPostId: string, token?: string) {
-  const resp = await fetch(`${API_URL}/api/workspace/messages/${foodPostId}`, {
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-  if (!resp.ok) throw new Error('Get messages failed');
-  return resp.json();
+  let localMsgs: WorkspaceMessage[] = [];
+  try {
+    const raw = localStorage.getItem('salwa_workspace_' + foodPostId);
+    if (raw) localMsgs = JSON.parse(raw);
+  } catch {}
+
+  if (localMsgs.length === 0) {
+    localMsgs = [
+      {
+        id: 'init-' + foodPostId,
+        foodPostId,
+        senderId: 'buyer-demo',
+        senderName: 'Community Rescuer (Ahmad)',
+        senderRole: 'individual',
+        content: 'Assalam-o-Alaikum! We are interested in this food drop. Can we pickup within the next 2 hours?',
+        timestamp: new Date(Date.now() - 18 * 60000).toISOString(),
+      }
+    ];
+    try {
+      localStorage.setItem('salwa_workspace_' + foodPostId, JSON.stringify(localMsgs));
+    } catch {}
+  }
+
+  try {
+    const resp = await fetch(`${API_URL}/api/workspace/messages/${foodPostId}`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const serverMsgs: WorkspaceMessage[] = (data.messages || []).map((m: any) => ({
+        ...m,
+        timestamp: typeof m.timestamp === 'number' ? new Date(m.timestamp).toISOString() : m.timestamp
+      }));
+      const seen = new Set<string>();
+      const combined: WorkspaceMessage[] = [];
+      for (const m of [...localMsgs, ...serverMsgs]) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          combined.push(m);
+        }
+      }
+      return { messages: combined };
+    }
+  } catch {
+    /* fallback to localMsgs */
+  }
+  return { messages: localMsgs };
 }

@@ -56,7 +56,10 @@ def get_conversation(user_id: str) -> list:
         logger.error(f"Redis get_conversation error: {e}")
         return []
 
+_in_memory_workspace: dict = {}
+
 def push_to_workspace(food_post_id: str, message: dict):
+    _in_memory_workspace.setdefault(str(food_post_id), []).append(message)
     if not redis_client: return
     try:
         key = f"workspace:{food_post_id}"
@@ -67,14 +70,25 @@ def push_to_workspace(food_post_id: str, message: dict):
         logger.error(f"Redis push_to_workspace error: {e}")
 
 def get_workspace_messages(food_post_id: str) -> list:
-    if not redis_client: return []
+    mem_msgs = list(_in_memory_workspace.get(str(food_post_id), []))
+    if not redis_client: return mem_msgs
     try:
         key = f"workspace:{food_post_id}"
         vals = redis_client.lrange(key, 0, -1)
-        return [json.loads(v) for v in vals] if vals else []
+        if vals:
+            r_msgs = [json.loads(v) for v in vals]
+            seen = set()
+            combined = []
+            for m in mem_msgs + r_msgs:
+                mid = m.get("id") or m.get("timestamp")
+                if mid not in seen:
+                    seen.add(mid)
+                    combined.append(m)
+            return combined
+        return mem_msgs
     except Exception as e:
         logger.error(f"Redis get_workspace_messages error: {e}")
-        return []
+        return mem_msgs
 
 def save_food_post_to_redis(post: dict):
     if not redis_client or not post: return

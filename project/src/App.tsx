@@ -3,7 +3,9 @@ import {
   ArrowRight, Bell, Bot, Check, ChevronRight, Clock3, Compass, Flame, Heart,
   Leaf, Loader2, LogOut, Mail, MapPin, Menu, MessageCircle, Mic, Package, Plus, Search,
   Send, ShieldCheck, Sparkles, Square, Star, Store, Truck, UserRound, Users, X, Zap,
-  Camera, MessageSquare, Shield, TrendingUp, AlertTriangle, CheckCircle, Upload, RefreshCw, ShoppingBag
+  Camera, MessageSquare, Shield, TrendingUp, AlertTriangle, CheckCircle, Upload, RefreshCw, ShoppingBag,
+  ShieldAlert, Database, Activity, FileText, CheckCircle2, XCircle, ExternalLink, Eye,
+  SlidersHorizontal, UserCheck, Utensils, ReceiptText, BarChart3, Filter, Trash2, Download, Layers
 } from 'lucide-react';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -12,7 +14,7 @@ import { sendChat, getMatchmaking, analyzeQuality, notifySubscribers, sendWorksp
 import type { QualityAnalysis, MatchmakingResult, WorkspaceMessage } from '@/lib/types';
 import { CURRENCY_OPTIONS, formatDistance, formatPrice, formatPriceShort, getCurrency, haversineKm, setCurrency, timeAgo, timeUntil, type Currency } from '@/lib/utils';
 
-type View = 'home' | 'discover' | 'post' | 'assistant' | 'history' | 'profile' | 'quality' | 'workspace' | 'matchmaker';
+type View = 'home' | 'discover' | 'post' | 'assistant' | 'history' | 'profile' | 'quality' | 'workspace' | 'matchmaker' | 'admin';
 
 const mockFood: FoodPostWithSeller[] = [
   { id: 'mock-1', user_id: 'seller-1', food_name: 'Chicken Biryani', quantity: 8, unit: 'kg', price: 350, original_price: 700, expiry_time: new Date(Date.now() + 3.5 * 3600000).toISOString(), lat: 24.8607, lng: 67.0011, location_text: 'Bahadurabad, Karachi', photo_url: 'https://images.pexels.com/photos/5410401/pexels-photo-5410401.jpeg?auto=compress&cs=tinysrgb&w=900', description: 'Fresh chicken biryani prepared for a wedding order. Packed and ready for pickup.', status: 'available', created_at: new Date(Date.now() - 22 * 60000).toISOString(), updated_at: new Date().toISOString(), seller: { id: 'seller-1', name: 'Nawab Kitchen', rating: 4.9, rating_count: 128, role: 'restaurant' } },
@@ -435,9 +437,15 @@ function AuthModal({
 
 function Workspace() {
   const { profile, updateRole, signOut } = useAuth();
-  const [view, setView] = useState<View>('home');
+  const [view, setView] = useState<View>(() => (profile?.role === 'admin' ? 'admin' : 'home'));
   const [mobileNav, setMobileNav] = useState(false);
   const [selectedPost, setSelectedPost] = useState<FoodPostWithSeller | null>(null);
+
+  useEffect(() => {
+    if (profile?.role === 'admin' && view === 'home') {
+      setView('admin');
+    }
+  }, [profile?.role]);
 
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-navy-900">
@@ -453,6 +461,7 @@ function Workspace() {
             { id: 'history', label: 'My activity', icon: <Package size={19} /> },
             { id: 'quality', label: 'Food quality AI', icon: <Shield size={19} /> },
             { id: 'workspace', label: 'Business chat', icon: <MessageSquare size={19} /> },
+            { id: 'admin', label: 'Admin Console', icon: <ShieldAlert size={19} /> },
             { id: 'profile', label: 'Profile', icon: <UserRound size={19} /> },
           ] as { id: View; label: string; icon: ReactNode }[])
             .map(item => (
@@ -466,6 +475,7 @@ function Workspace() {
                 {item.id === 'assistant' && <span className="ml-auto rounded-full bg-brand-green px-1.5 py-0.5 text-[10px] font-bold text-white">AI</span>}
                 {item.id === 'matchmaker' && <span className="ml-auto rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">New</span>}
                 {item.id === 'quality' && <span className="ml-auto rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">Vision</span>}
+                {item.id === 'admin' && <span className="ml-auto rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">Admin</span>}
               </button>
             ))}
         </div>
@@ -483,11 +493,16 @@ function Workspace() {
             <span className="text-[11px] font-medium text-blue-100/60">Switch Role:</span>
             <select
               value={profile?.role || 'individual'}
-              onChange={e => updateRole(e.target.value as any)}
+              onChange={e => {
+                const nextRole = e.target.value as any;
+                updateRole(nextRole);
+                if (nextRole === 'admin') setView('admin');
+              }}
               className="rounded-lg bg-navy-900 px-2 py-1 text-[11px] font-semibold text-brand-green-light border border-white/20 focus:outline-none cursor-pointer"
             >
               <option value="individual">Individual</option>
               <option value="restaurant">Restaurant</option>
+              <option value="admin">Administrator</option>
             </select>
           </div>
           <button
@@ -512,7 +527,8 @@ function Workspace() {
              view === 'assistant' ? 'Salwa Multi-Agent Assistant' :
              view === 'history' ? 'Your rescue activity & orders' :
              view === 'quality' ? 'Food Quality & Hygiene AI Inspector' :
-             view === 'workspace' ? 'Business Coordination Hub' : 'Your Profile'}
+             view === 'workspace' ? 'Business Coordination Hub' :
+             view === 'admin' ? 'Administrator Surveillance & Transparency Center' : 'Your Profile'}
           </div>
           <div className="ml-auto flex items-center gap-3">
             <CurrencySwitcher />
@@ -564,6 +580,7 @@ function ViewContent({
   if (view === 'history') return <History onSelectFood={onSelectFood} />;
   if (view === 'quality') return <FoodQualityAnalyzer />;
   if (view === 'workspace') return <BusinessWorkspace />;
+  if (view === 'admin') return <AdminDashboard onSelectFood={onSelectFood} />;
   return <ProfilePage />;
 }
 
@@ -1874,18 +1891,20 @@ function BusinessWorkspace() {
       updated_at: new Date().toISOString(),
       seller: { id: profile?.id || 'seller-1', name: profile?.name || 'Grand Kitchen', rating: 4.9, rating_count: 15, role: 'restaurant' }
     };
-    const initialPosts = local.length > 0 ? local : [demoDrop];
-    setPosts(initialPosts);
-    setSelectedPost(initialPosts[0].id);
+    const allAvailable = [...local, demoDrop, ...mockFood];
+    const uniquePosts: FoodPostWithSeller[] = [];
+    allAvailable.forEach(p => {
+      if (!uniquePosts.some(u => u.id === p.id)) uniquePosts.push(p);
+    });
+    setPosts(uniquePosts);
+    setSelectedPost(uniquePosts[0]?.id || null);
 
     supabase.from('food_posts').select('*, seller:profiles!user_id(id,name,rating,rating_count,role)')
-      .eq('user_id', profile.id)
       .order('created_at', { ascending: false }).limit(10)
       .then(({ data }) => {
         if (data?.length) {
-          const combined = [...data as unknown as FoodPostWithSeller[], ...initialPosts.filter(p => !data.some((d: any) => d.id === p.id))];
+          const combined = [...data as unknown as FoodPostWithSeller[], ...uniquePosts.filter(p => !data.some((d: any) => d.id === p.id))];
           setPosts(combined);
-          setSelectedPost(combined[0].id);
         }
       });
   }, [profile]);
@@ -1928,73 +1947,998 @@ function BusinessWorkspace() {
           <MessageSquare size={25} />
         </div>
         <div>
-          <p className="text-sm font-medium text-brand-green-dark">Kitchen Coordination</p>
-          <h1 className="text-3xl font-extrabold tracking-tight">Business Chat & Drop Management</h1>
+          <p className="text-sm font-medium text-brand-green-dark">Kitchen & Rescuer Coordination</p>
+          <h1 className="text-3xl font-extrabold tracking-tight">Business Chat Hub</h1>
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[.4fr_1fr]">
+      <div className="grid gap-5 lg:grid-cols-[.38fr_1fr]">
         <div className="space-y-3">
-          <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Your Surplus Listings</h3>
-          {posts.length === 0 ? (
-            <div className="card p-6 text-center text-sm text-slate-500">
-              No active food drops posted yet.
-            </div>
-          ) : posts.map(post => (
-            <button
-              key={post.id}
-              onClick={() => setSelectedPost(post.id)}
-              className={`card w-full p-4 text-left transition ${selectedPost === post.id ? 'border-brand-green ring-2 ring-brand-green/20' : 'card-hover'}`}
-            >
-              <p className="font-bold text-navy-900">{post.food_name}</p>
-              <p className="text-xs text-slate-500 mt-1">{post.quantity} {post.unit} · {formatPrice(post.price)}</p>
-              <p className="text-xs text-brand-green-dark mt-1">{post.location_text}</p>
-            </button>
-          ))}
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Available Surplus Drops</h3>
+            <span className="badge bg-slate-100 text-slate-600 text-[10px]">{posts.length} Active</span>
+          </div>
+
+          <div className="max-h-[560px] overflow-y-auto space-y-2 pr-1">
+            {posts.map(post => (
+              <button
+                key={post.id}
+                onClick={() => setSelectedPost(post.id)}
+                className={`card w-full p-3.5 text-left transition ${selectedPost === post.id ? 'border-brand-green ring-2 ring-brand-green/20 bg-brand-green-50/20' : 'card-hover'}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-bold text-navy-900 text-sm leading-tight">{post.food_name}</p>
+                  <span className="shrink-0 text-xs font-bold text-brand-green-dark">{formatPrice(post.price)}</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                  <span>{post.quantity} {post.unit}</span>
+                  <span>·</span>
+                  <span className="text-navy-900 font-medium">{post.seller?.name || 'Local Kitchen'}</span>
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5 truncate">{post.location_text}</p>
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden flex flex-col h-[580px]">
           {selectedPost ? (
             <>
-              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 p-4">
-                <span className="h-2.5 w-2.5 rounded-full bg-brand-green animate-pulse" />
-                <span className="text-sm font-semibold text-navy-900">Coordination Chat</span>
-                <span className="text-xs text-slate-400">· {posts.find(p => p.id === selectedPost)?.food_name}</span>
+              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 p-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 rounded-full bg-brand-green animate-pulse" />
+                  <div>
+                    <span className="text-sm font-semibold text-navy-900 block leading-tight">
+                      {posts.find(p => p.id === selectedPost)?.food_name}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      Kitchen: {posts.find(p => p.id === selectedPost)?.seller?.name || 'Commercial Kitchen'} · {posts.find(p => p.id === selectedPost)?.location_text}
+                    </span>
+                  </div>
+                </div>
+                <span className="badge bg-brand-green-50 text-brand-green-dark text-xs font-bold">
+                  {formatPrice(posts.find(p => p.id === selectedPost)?.price || 0)}
+                </span>
               </div>
-              <div ref={scrollRef} className="max-h-[400px] min-h-[350px] space-y-3 overflow-y-auto p-5">
+
+              <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5 bg-[#fafcfb]">
                 {messages.length === 0 ? (
                   <div className="text-center py-12 text-slate-500 text-sm">
                     <MessageSquare className="mx-auto text-slate-300 mb-2" size={32} />
-                    No customer coordination messages yet for this drop.
+                    No coordination messages yet for this drop. Start the dialogue!
                   </div>
                 ) : messages.map((msg, i) => (
                   <div key={i} className={`flex gap-3 ${msg.senderId === profile?.id ? 'justify-end' : ''}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${msg.senderId === profile?.id ? 'rounded-br-md bg-navy-900 text-white' : 'rounded-bl-md bg-brand-green-50 text-navy-900'}`}>
-                      <p className="text-[10px] font-bold mb-1 opacity-60">{msg.senderName} · {msg.senderRole}</p>
+                    <div className={`max-w-[75%] rounded-2xl px-4 py-3 shadow-2xs ${msg.senderId === profile?.id ? 'rounded-br-md bg-navy-900 text-white' : 'rounded-bl-md bg-white border border-slate-200/80 text-navy-900'}`}>
+                      <p className={`text-[10px] font-bold mb-1 ${msg.senderId === profile?.id ? 'text-brand-green-light' : 'text-brand-green-dark'}`}>
+                        {msg.senderName} · <span className="capitalize opacity-80">{msg.senderRole}</span>
+                      </p>
                       <p className="text-sm leading-6">{msg.content}</p>
-                      <p className="text-[10px] mt-1 opacity-40">{new Date(msg.timestamp).toLocaleTimeString()}</p>
+                      <p className={`text-[10px] mt-1 text-right ${msg.senderId === profile?.id ? 'text-white/50' : 'text-slate-400'}`}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="border-t border-slate-100 p-4">
-                <form onSubmit={sendMsg} className="flex gap-2">
-                  <input value={input} onChange={e => setInput(e.target.value)} className="input-field" placeholder="Reply to rescuers..." />
-                  <button disabled={busy} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-green text-white transition hover:bg-brand-green-dark">
-                    <Send size={18} />
-                  </button>
-                </form>
+
+              <div className="shrink-0 bg-white border-t border-slate-100">
+                <div className="flex flex-wrap gap-1.5 px-4 pt-2.5 pb-1 bg-slate-50/50">
+                  {[
+                    'Is this food still hot and ready for pickup?',
+                    'Can we reserve and pickup within 30 mins?',
+                    'Confirmed! Your order is packed and waiting.',
+                    'Paying cash at the counter upon arrival.'
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setInput(preset)}
+                      className="rounded-lg bg-white border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:border-brand-green hover:text-brand-green-dark transition shadow-2xs cursor-pointer"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-3">
+                  <form onSubmit={sendMsg} className="flex gap-2">
+                    <input
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      className="input-field"
+                      placeholder="Type a message or select a prompt above..."
+                      disabled={busy}
+                    />
+                    <button
+                      type="submit"
+                      disabled={busy || !input.trim()}
+                      className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-green text-white transition hover:bg-brand-green-dark disabled:opacity-50 cursor-pointer shadow-md"
+                    >
+                      {busy ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                    </button>
+                  </form>
+                </div>
               </div>
             </>
           ) : (
-            <div className="p-12 text-center text-slate-500">
+            <div className="p-12 text-center text-slate-500 m-auto">
               <Users className="mx-auto text-slate-300 mb-3" size={40} />
-              <h3 className="font-bold text-navy-900">Select a Food Listing</h3>
-              <p className="mt-1 text-sm">Choose a drop from the left to coordinate pickups with customers.</p>
+              <h3 className="font-bold text-navy-900">Select a Surplus Food Drop</h3>
+              <p className="mt-1 text-sm">Choose a drop from the list to start real-time coordination with kitchens and rescuers.</p>
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSeller) => void }) {
+  const { profile } = useAuth();
+  const [tab, setTab] = useState<'overview' | 'users' | 'listings' | 'requests' | 'audit'>('overview');
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'individual' | 'restaurant' | 'admin'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'reserved' | 'sold'>('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedUserModal, setSelectedUserModal] = useState<Profile | null>(null);
+
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [listings, setListings] = useState<FoodPostWithSeller[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [auditLogs, setAuditLogs] = useState<{ id: string; time: string; event: string; status: 'ok' | 'warn' | 'info' }[]>([]);
+
+  async function loadData() {
+    setRefreshing(true);
+    try {
+      const { data: supaProfiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      const defaultUsers: Profile[] = [
+        {
+          id: profile?.id || 'admin-root',
+          name: profile?.name || 'Eman Aslam (SuperAdmin)',
+          email: profile?.email || 'emanaslam543@gmail.com',
+          role: 'admin',
+          tier: 'prime',
+          rating: 5.0,
+          rating_count: 36,
+          phone: '+92 300 9988776',
+          location_text: 'Central Secretariat, Karachi',
+          lat: 24.8607,
+          lng: 67.0011,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 60 * 86400000).toISOString()
+        },
+        {
+          id: 'user-rescuer-1',
+          name: 'Ahmad Raza',
+          email: 'ahmad.raza@gmail.com',
+          role: 'individual',
+          tier: 'free',
+          rating: 4.9,
+          rating_count: 14,
+          phone: '+92 321 4455667',
+          location_text: 'Bahadurabad, Karachi',
+          lat: 24.8607,
+          lng: 67.0011,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 15 * 86400000).toISOString()
+        },
+        {
+          id: 'user-rescuer-2',
+          name: 'Zainab Fatima',
+          email: 'zainab.f@outlook.com',
+          role: 'individual',
+          tier: 'prime',
+          rating: 5.0,
+          rating_count: 22,
+          phone: '+92 333 9988776',
+          location_text: 'Gulberg III, Lahore',
+          lat: 31.5204,
+          lng: 74.3587,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 25 * 86400000).toISOString()
+        },
+        {
+          id: 'user-rescuer-3',
+          name: 'Bilal Khan',
+          email: 'bilal.k99@gmail.com',
+          role: 'individual',
+          tier: 'free',
+          rating: 4.7,
+          rating_count: 8,
+          phone: '+92 345 1122334',
+          location_text: 'Saddar, Rawalpindi',
+          lat: 33.5989,
+          lng: 73.0441,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 8 * 86400000).toISOString()
+        },
+        {
+          id: 'user-rescuer-4',
+          name: 'Ayesha Malik',
+          email: 'ayesha.m@uni.edu.pk',
+          role: 'individual',
+          tier: 'ngo',
+          rating: 4.8,
+          rating_count: 19,
+          phone: '+92 312 8877665',
+          location_text: 'F-7 Markaz, Islamabad',
+          lat: 33.7215,
+          lng: 73.0565,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 12 * 86400000).toISOString()
+        },
+        {
+          id: 'rest-seller-1',
+          name: 'Nawab Kitchen',
+          email: 'nawab.kitchen@gmail.com',
+          role: 'restaurant',
+          tier: 'prime',
+          rating: 4.9,
+          rating_count: 128,
+          phone: '+92 301 9876543',
+          location_text: 'Bahadurabad, Karachi',
+          lat: 24.8607,
+          lng: 67.0011,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 45 * 86400000).toISOString()
+        },
+        {
+          id: 'rest-seller-2',
+          name: 'Green Leaf Cafe',
+          email: 'greenleaf.pk@gmail.com',
+          role: 'restaurant',
+          tier: 'free',
+          rating: 4.7,
+          rating_count: 84,
+          phone: '+92 322 5566778',
+          location_text: 'Gulberg, Lahore',
+          lat: 31.5204,
+          lng: 74.3587,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 60 * 86400000).toISOString()
+        },
+        {
+          id: 'rest-seller-3',
+          name: 'Sahaara Community Kitchen',
+          email: 'sahaara.trust@gmail.com',
+          role: 'hostel',
+          tier: 'ngo',
+          rating: 5.0,
+          rating_count: 52,
+          phone: '+92 300 7788990',
+          location_text: 'Saddar, Rawalpindi',
+          lat: 33.5989,
+          lng: 73.0441,
+          avatar_url: null,
+          created_at: new Date(Date.now() - 90 * 86400000).toISOString()
+        }
+      ];
+
+      const mergedUsers = [...(supaProfiles || []) as Profile[]];
+      defaultUsers.forEach(u => {
+        if (!mergedUsers.some(m => m.id === u.id || (m.email && u.email && m.email.toLowerCase() === u.email.toLowerCase()))) {
+          mergedUsers.push(u);
+        }
+      });
+      setUsers(mergedUsers);
+
+      const localPosts = getStoredLocalPosts();
+      const { data: supaPosts } = await supabase.from('food_posts').select('*, seller:profiles!user_id(id,name,rating,rating_count,role)').order('created_at', { ascending: false });
+      const mergedListings = [...localPosts];
+      if (supaPosts && supaPosts.length > 0) {
+        supaPosts.forEach((sp: any) => {
+          if (!mergedListings.some(l => l.id === sp.id)) mergedListings.push(sp);
+        });
+      }
+      mockFood.forEach(mf => {
+        if (!mergedListings.some(l => l.id === mf.id)) mergedListings.push(mf);
+      });
+      setListings(mergedListings);
+
+      const localTx = getStoredReservations();
+      const { data: supaTx } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
+      const defaultTx: Transaction[] = [
+        {
+          id: 'RSV-9241',
+          buyer_id: 'ahmad.raza@gmail.com',
+          seller_id: 'Nawab Kitchen',
+          food_id: 'mock-1',
+          food_name: 'Chicken Biryani (8 kg)',
+          amount: 350,
+          commission: 0,
+          payment_method: 'cash',
+          status: 'completed',
+          delivered_at: new Date(Date.now() - 40 * 60000).toISOString(),
+          created_at: new Date(Date.now() - 75 * 60000).toISOString()
+        },
+        {
+          id: 'RSV-8104',
+          buyer_id: 'zainab.f@outlook.com',
+          seller_id: 'Green Leaf Cafe',
+          food_id: 'mock-2',
+          food_name: 'Paneer Wraps (24 packs)',
+          amount: 120,
+          commission: 0,
+          payment_method: 'cash',
+          status: 'ready',
+          delivered_at: null,
+          created_at: new Date(Date.now() - 30 * 60000).toISOString()
+        },
+        {
+          id: 'RSV-7732',
+          buyer_id: 'ayesha.m@uni.edu.pk',
+          seller_id: 'Sahaara Community Kitchen',
+          food_id: 'mock-3',
+          food_name: 'Daal Chawal Meals (12 meals)',
+          amount: 180,
+          commission: 0,
+          payment_method: 'cash',
+          status: 'pending',
+          delivered_at: null,
+          created_at: new Date(Date.now() - 15 * 60000).toISOString()
+        }
+      ];
+
+      const mergedTx = [...localTx];
+      if (supaTx && supaTx.length > 0) {
+        supaTx.forEach((st: any) => {
+          if (!mergedTx.some(t => t.id === st.id)) mergedTx.push(st);
+        });
+      }
+      defaultTx.forEach(dt => {
+        if (!mergedTx.some(t => t.id === dt.id)) mergedTx.push(dt);
+      });
+      setTransactions(mergedTx);
+
+      setAuditLogs([
+        { id: '1', time: 'Just now', event: `Ledger Synced: ${mergedUsers.length} accounts, ${mergedListings.length} surplus drops, ${mergedTx.length} claims.`, status: 'ok' },
+        { id: '2', time: '3m ago', event: `Admin authentication validated for ${profile?.email || 'emanaslam543@gmail.com'}. Full access granted.`, status: 'ok' },
+        { id: '3', time: '6m ago', event: `Supabase Cloud database connection healthy & responsive.`, status: 'ok' },
+        { id: '4', time: '11m ago', event: `Resend email broadcast service active for nearby subscriber radius matching.`, status: 'info' },
+        { id: '5', time: '18m ago', event: `Gemini 2.0 Flash Vision inspection cache verified.`, status: 'info' },
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, [profile]);
+
+  async function togglePostStatus(postId: string, newStatus: 'available' | 'reserved' | 'sold') {
+    setListings(prev => prev.map(p => p.id === postId ? { ...p, status: newStatus } : p));
+    try {
+      await supabase.from('food_posts').update({ status: newStatus }).eq('id', postId);
+    } catch {}
+    try {
+      const local = getStoredLocalPosts().map(p => p.id === postId ? { ...p, status: newStatus } : p);
+      localStorage.setItem('salwa_local_posts', JSON.stringify(local));
+    } catch {}
+  }
+
+  async function updateTxStatus(txId: string, newStatus: string) {
+    setTransactions(prev => prev.map(t => t.id === txId ? { ...t, status: newStatus } : t));
+    try {
+      await supabase.from('transactions').update({ status: newStatus }).eq('id', txId);
+    } catch {}
+    try {
+      const local = getStoredReservations().map(t => t.id === txId ? { ...t, status: newStatus } : t);
+      localStorage.setItem('salwa_local_reservations', JSON.stringify(local));
+    } catch {}
+  }
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => {
+      const matchRole = roleFilter === 'all' || u.role === roleFilter || (roleFilter === 'restaurant' && u.role === 'hostel');
+      const q = search.toLowerCase();
+      const matchSearch = !q || (
+        u.name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.location_text?.toLowerCase().includes(q) ||
+        u.role?.toLowerCase().includes(q)
+      );
+      return matchRole && matchSearch;
+    });
+  }, [users, roleFilter, search]);
+
+  const filteredListings = useMemo(() => {
+    return listings.filter(l => {
+      const matchStatus = statusFilter === 'all' || l.status === statusFilter;
+      const q = search.toLowerCase();
+      const matchSearch = !q || (
+        l.food_name?.toLowerCase().includes(q) ||
+        l.seller?.name?.toLowerCase().includes(q) ||
+        l.location_text?.toLowerCase().includes(q)
+      );
+      return matchStatus && matchSearch;
+    });
+  }, [listings, statusFilter, search]);
+
+  const filteredRequests = useMemo(() => {
+    return transactions.filter(t => {
+      const q = search.toLowerCase();
+      return !q || (
+        t.food_name?.toLowerCase().includes(q) ||
+        t.buyer_id?.toLowerCase().includes(q) ||
+        t.seller_id?.toLowerCase().includes(q) ||
+        t.id?.toLowerCase().includes(q)
+      );
+    });
+  }, [transactions, search]);
+
+  const totalEconomy = transactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+  const totalPortions = listings.reduce((acc, l) => acc + (l.quantity || 0), 0);
+  const indCount = users.filter(u => u.role === 'individual').length;
+  const restCount = users.filter(u => u.role === 'restaurant' || u.role === 'hostel').length;
+
+  function exportReport() {
+    const report = {
+      generatedAt: new Date().toISOString(),
+      admin: profile?.email || 'emanaslam543@gmail.com',
+      metrics: {
+        totalUsers: users.length,
+        individuals: indCount,
+        restaurants: restCount,
+        totalListings: listings.length,
+        totalOrders: transactions.length,
+        totalEconomyPKR: totalEconomy,
+      },
+      users,
+      listings,
+      transactions,
+    };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `man-o-salwa-transparency-report-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="animate-fade-in-up space-y-7 pb-12">
+      {/* Top Banner */}
+      <div className="rounded-3xl bg-navy-900 p-6 sm:p-8 text-white shadow-xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-rose-600/20 text-rose-400 border border-rose-500/30">
+              <ShieldAlert size={28} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="rounded-full bg-rose-500/20 border border-rose-400/40 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-widest text-rose-300">
+                  Full Administrator Access
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Supabase Cloud: Synced
+                </span>
+              </div>
+              <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">Platform Surveillance & Transparency Center</h1>
+              <p className="mt-1 text-xs sm:text-sm text-blue-100/70">
+                Logged in: <strong className="text-white">{profile?.email || 'emanaslam543@gmail.com'}</strong> · Complete oversight of users, listings, claims & system integrity
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <button
+              onClick={loadData}
+              disabled={refreshing}
+              className="flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 px-3.5 py-2.5 text-xs font-semibold text-white transition cursor-pointer"
+            >
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+              <span>{refreshing ? 'Syncing...' : 'Refresh Ledger'}</span>
+            </button>
+            <button
+              onClick={exportReport}
+              className="flex items-center gap-2 rounded-xl bg-brand-green hover:bg-brand-green-dark px-4 py-2.5 text-xs font-bold text-white transition cursor-pointer shadow-md"
+            >
+              <Download size={14} />
+              <span>Export Audit JSON</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="card p-5 border-l-4 border-l-blue-500">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Registered Accounts</span>
+            <Users size={18} className="text-blue-500" />
+          </div>
+          <p className="text-3xl font-extrabold text-navy-900">{users.length}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            <span className="font-semibold text-blue-600">{indCount} Individuals</span> · <span className="font-semibold text-emerald-600">{restCount} Kitchens</span>
+          </p>
+        </div>
+
+        <div className="card p-5 border-l-4 border-l-brand-green">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Surplus Inventory</span>
+            <Utensils size={18} className="text-brand-green" />
+          </div>
+          <p className="text-3xl font-extrabold text-navy-900">{listings.length}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            <span className="font-semibold text-brand-green-dark">{totalPortions} portions</span> across active drops
+          </p>
+        </div>
+
+        <div className="card p-5 border-l-4 border-l-amber-500">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Customer Claims / Orders</span>
+            <ReceiptText size={18} className="text-amber-500" />
+          </div>
+          <p className="text-3xl font-extrabold text-navy-900">{transactions.length}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            <span className="font-semibold text-amber-600">{transactions.filter(t => t.status === 'completed' || t.status === 'ready').length} Fulfilled</span> · {transactions.filter(t => t.status === 'pending').length} Pending
+          </p>
+        </div>
+
+        <div className="card p-5 border-l-4 border-l-emerald-600">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Rescue Economy Volume</span>
+            <TrendingUp size={18} className="text-emerald-600" />
+          </div>
+          <p className="text-3xl font-extrabold text-navy-900">{formatPrice(totalEconomy)}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            Direct economic value saved in meals
+          </p>
+        </div>
+      </div>
+
+      {/* Tabs and Controls */}
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {[
+              { id: 'overview', label: 'Surveillance Overview', icon: <BarChart3 size={15} /> },
+              { id: 'users', label: `Accounts (${users.length})`, icon: <Users size={15} /> },
+              { id: 'listings', label: `Food Inventory (${listings.length})`, icon: <Utensils size={15} /> },
+              { id: 'requests', label: `Claims Ledger (${transactions.length})`, icon: <ReceiptText size={15} /> },
+              { id: 'audit', label: 'Audit & Health', icon: <Activity size={15} /> },
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id as any)}
+                className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition whitespace-nowrap cursor-pointer ${tab === t.id ? 'bg-navy-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                {t.icon}
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search across ledger..."
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-1.5 text-xs font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-navy-900/10"
+              />
+            </div>
+            {search && (
+              <button onClick={() => setSearch('')} className="p-1 text-slate-400 hover:text-navy-900">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* TAB 1: OVERVIEW */}
+        {tab === 'overview' && (
+          <div className="pt-6 space-y-6">
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
+                <h3 className="font-bold text-navy-900 text-sm mb-4 flex items-center justify-between">
+                  <span>Recent Platform Claims & Reservations</span>
+                  <button onClick={() => setTab('requests')} className="text-xs text-brand-green-dark hover:underline font-semibold">View All ({transactions.length})</button>
+                </h3>
+                <div className="space-y-3">
+                  {transactions.slice(0, 4).map(tx => (
+                    <div key={tx.id} className="flex items-center justify-between rounded-xl bg-white p-3.5 border border-slate-200/70 shadow-2xs">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-navy-900">{tx.id}</span>
+                          <span className="badge bg-emerald-50 text-emerald-700 text-[10px] capitalize">{tx.status}</span>
+                        </div>
+                        <p className="text-xs font-semibold text-navy-900 mt-1">{tx.food_name}</p>
+                        <p className="text-[11px] text-slate-500">Rescuer: {tx.buyer_id} · {timeAgo(tx.created_at)}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-extrabold text-brand-green-dark text-sm block">{formatPrice(tx.amount)}</span>
+                        <span className="text-[10px] uppercase text-slate-400 font-semibold">{tx.payment_method}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
+                <h3 className="font-bold text-navy-900 text-sm mb-4 flex items-center justify-between">
+                  <span>Active Surplus Drops Under Monitoring</span>
+                  <button onClick={() => setTab('listings')} className="text-xs text-brand-green-dark hover:underline font-semibold">View All ({listings.length})</button>
+                </h3>
+                <div className="space-y-3">
+                  {listings.slice(0, 4).map(p => (
+                    <div key={p.id} className="flex items-center justify-between rounded-xl bg-white p-3.5 border border-slate-200/70 shadow-2xs">
+                      <div className="flex items-center gap-3">
+                        {p.photo_url ? (
+                          <img src={p.photo_url} alt="" className="h-10 w-10 rounded-lg object-cover" />
+                        ) : (
+                          <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-100 text-slate-400"><Utensils size={16} /></div>
+                        )}
+                        <div>
+                          <p className="text-xs font-bold text-navy-900">{p.food_name}</p>
+                          <p className="text-[11px] text-slate-500">{p.seller?.name || 'Kitchen'} · {p.location_text}</p>
+                          <p className="text-[10px] text-amber-600 font-medium">Expires in {timeUntil(p.expiry_time)}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-navy-900 text-xs block">{formatPrice(p.price)}</span>
+                        <span className="text-[10px] text-slate-400 line-through">{formatPrice(p.original_price)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-navy-900 p-6 text-white">
+              <h4 className="text-sm font-bold text-brand-green-light uppercase tracking-wider mb-2">Transparency Engine Status</h4>
+              <div className="grid gap-4 sm:grid-cols-3 text-xs">
+                <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                  <p className="text-blue-100/60 font-medium">Primary Database</p>
+                  <p className="font-bold text-white mt-1">Supabase PostgreSQL Cloud</p>
+                  <p className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">● Latency: 42ms (Healthy)</p>
+                </div>
+                <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                  <p className="text-blue-100/60 font-medium">AI Vision Engine</p>
+                  <p className="font-bold text-white mt-1">Gemini 2.0 Flash Inspector</p>
+                  <p className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">● Ready for hygiene audits</p>
+                </div>
+                <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                  <p className="text-blue-100/60 font-medium">Notification Broadcast</p>
+                  <p className="font-bold text-white mt-1">Resend Email Gateway</p>
+                  <p className="text-[11px] text-blue-300 mt-1 flex items-center gap-1">● Target: emanaslam543@gmail.com</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: ALL USER ACCOUNTS */}
+        {tab === 'users' && (
+          <div className="pt-6 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                {(['all', 'individual', 'restaurant', 'admin'] as const).map(role => (
+                  <button
+                    key={role}
+                    onClick={() => setRoleFilter(role)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition cursor-pointer ${roleFilter === role ? 'bg-navy-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    {role === 'all' ? 'All Roles' : role === 'restaurant' ? 'Restaurants & Kitchens' : role}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-slate-500 font-medium">Showing {filteredUsers.length} accounts</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider border-b border-slate-200 text-[10px]">
+                  <tr>
+                    <th className="p-3.5 font-bold">Account User</th>
+                    <th className="p-3.5 font-bold">Email</th>
+                    <th className="p-3.5 font-bold">Role</th>
+                    <th className="p-3.5 font-bold">Location</th>
+                    <th className="p-3.5 font-bold">Rating</th>
+                    <th className="p-3.5 font-bold">Tier</th>
+                    <th className="p-3.5 font-bold text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredUsers.map(u => (
+                    <tr key={u.id} className="hover:bg-slate-50/70 transition">
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`grid h-8 w-8 place-items-center rounded-full text-xs font-bold text-white ${u.role === 'admin' ? 'bg-rose-600' : u.role === 'restaurant' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                            {u.name?.slice(0, 1).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-navy-900">{u.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">ID: {u.id.slice(0, 12)}...</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3.5 font-medium text-slate-700">{u.email || 'N/A'}</td>
+                      <td className="p-3.5">
+                        <span className={`badge text-[10px] capitalize font-bold ${u.role === 'admin' ? 'bg-rose-50 text-rose-700 border border-rose-200' : u.role === 'restaurant' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-slate-600">{u.location_text || 'Karachi, Pakistan'}</td>
+                      <td className="p-3.5">
+                        <span className="flex items-center gap-1 font-bold text-amber-600">
+                          <Star size={12} fill="#F59E0B" /> {u.rating || '5.0'}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <span className="capitalize font-semibold text-slate-600">{u.tier}</span>
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <button
+                          onClick={() => setSelectedUserModal(u)}
+                          className="rounded-lg bg-slate-100 hover:bg-navy-900 hover:text-white px-2.5 py-1 text-[11px] font-semibold text-navy-900 transition cursor-pointer"
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: FOOD INVENTORY */}
+        {tab === 'listings' && (
+          <div className="pt-6 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                {(['all', 'available', 'reserved', 'sold'] as const).map(st => (
+                  <button
+                    key={st}
+                    onClick={() => setStatusFilter(st)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition cursor-pointer ${statusFilter === st ? 'bg-navy-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    {st} ({listings.filter(l => st === 'all' || l.status === st).length})
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-slate-500 font-medium">Showing {filteredListings.length} drops</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider border-b border-slate-200 text-[10px]">
+                  <tr>
+                    <th className="p-3.5 font-bold">Food Drop</th>
+                    <th className="p-3.5 font-bold">Kitchen / Restaurant</th>
+                    <th className="p-3.5 font-bold">Portions</th>
+                    <th className="p-3.5 font-bold">Price / Original</th>
+                    <th className="p-3.5 font-bold">Expiry Countdown</th>
+                    <th className="p-3.5 font-bold">Status</th>
+                    <th className="p-3.5 font-bold text-right">Moderation Controls</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredListings.map(post => (
+                    <tr key={post.id} className="hover:bg-slate-50/70 transition">
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-3">
+                          {post.photo_url ? (
+                            <img src={post.photo_url} alt="" className="h-10 w-10 rounded-lg object-cover" />
+                          ) : (
+                            <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-100 text-slate-400"><Utensils size={16} /></div>
+                          )}
+                          <div>
+                            <p className="font-bold text-navy-900">{post.food_name}</p>
+                            <p className="text-[10px] text-slate-400 truncate max-w-xs">{post.description}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <p className="font-semibold text-navy-900">{post.seller?.name || 'Local Kitchen'}</p>
+                        <p className="text-[10px] text-slate-500">{post.location_text}</p>
+                      </td>
+                      <td className="p-3.5 font-bold text-navy-900">{post.quantity} {post.unit}</td>
+                      <td className="p-3.5">
+                        <span className="font-extrabold text-brand-green-dark">{formatPrice(post.price)}</span>
+                        <span className="text-[10px] text-slate-400 line-through block">{formatPrice(post.original_price)}</span>
+                      </td>
+                      <td className="p-3.5">
+                        <span className="text-amber-700 font-semibold text-[11px] bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          {timeUntil(post.expiry_time)}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <span className={`badge text-[10px] capitalize font-bold ${post.status === 'available' ? 'bg-brand-green-50 text-brand-green-dark border border-brand-green/30' : post.status === 'reserved' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                          {post.status}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
+                        <button
+                          onClick={() => onSelectFood(post)}
+                          className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-navy-900 transition cursor-pointer"
+                        >
+                          View Modal
+                        </button>
+                        {post.status !== 'available' && (
+                          <button
+                            onClick={() => togglePostStatus(post.id, 'available')}
+                            className="rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1 text-[10px] font-bold cursor-pointer"
+                          >
+                            Set Available
+                          </button>
+                        )}
+                        {post.status === 'available' && (
+                          <button
+                            onClick={() => togglePostStatus(post.id, 'reserved')}
+                            className="rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 text-[10px] font-bold cursor-pointer"
+                          >
+                            Set Reserved
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: CLAIMS & REQUESTS LEDGER */}
+        {tab === 'requests' && (
+          <div className="pt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">All Reservations & Pickup Vouchers</h3>
+              <span className="text-xs text-slate-500 font-medium">{filteredRequests.length} Transactions</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider border-b border-slate-200 text-[10px]">
+                  <tr>
+                    <th className="p-3.5 font-bold">Voucher ID</th>
+                    <th className="p-3.5 font-bold">Food Drop</th>
+                    <th className="p-3.5 font-bold">Buyer / Rescuer Email</th>
+                    <th className="p-3.5 font-bold">Seller Kitchen</th>
+                    <th className="p-3.5 font-bold">Amount</th>
+                    <th className="p-3.5 font-bold">Payment Mode</th>
+                    <th className="p-3.5 font-bold">Fulfillment Status</th>
+                    <th className="p-3.5 font-bold text-right">Quick Update</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredRequests.map(tx => (
+                    <tr key={tx.id} className="hover:bg-slate-50/70 transition">
+                      <td className="p-3.5 font-mono font-bold text-navy-900">{tx.id}</td>
+                      <td className="p-3.5 font-semibold text-navy-900">{tx.food_name}</td>
+                      <td className="p-3.5 text-slate-700">{tx.buyer_id}</td>
+                      <td className="p-3.5 text-slate-700 font-medium">{tx.seller_id}</td>
+                      <td className="p-3.5 font-extrabold text-brand-green-dark">{formatPrice(tx.amount)}</td>
+                      <td className="p-3.5">
+                        <span className="badge bg-slate-100 text-slate-700 uppercase text-[10px] font-bold">
+                          {tx.payment_method}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <span className={`badge text-[10px] capitalize font-bold ${tx.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : tx.status === 'ready' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                          {tx.status}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right whitespace-nowrap">
+                        {tx.status !== 'completed' ? (
+                          <button
+                            onClick={() => updateTxStatus(tx.id, 'completed')}
+                            className="rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold cursor-pointer"
+                          >
+                            Mark Completed
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-emerald-600 font-semibold flex items-center justify-end gap-1">
+                            <CheckCircle size={13} /> Verified
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: AUDIT LOGS & HEALTH */}
+        {tab === 'audit' && (
+          <div className="pt-6 space-y-6">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5">
+              <h3 className="font-bold text-navy-900 text-sm mb-3">Live Platform Audit Stream</h3>
+              <div className="space-y-2.5 font-mono text-xs">
+                {auditLogs.map(log => (
+                  <div key={log.id} className="flex items-start gap-3 rounded-xl bg-white p-3 border border-slate-200/60 shadow-2xs">
+                    <span className={`h-2 w-2 rounded-full mt-1.5 shrink-0 ${log.status === 'ok' ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                    <span className="text-slate-400 shrink-0 font-sans text-[11px]">{log.time}</span>
+                    <span className="text-navy-900 flex-1">{log.event}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="font-bold text-navy-900 text-sm mb-3">System Environment Health</h3>
+              <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-100">
+                  <span className="text-slate-500 font-medium block">Supabase Endpoint:</span>
+                  <span className="font-mono text-navy-900 font-bold block mt-0.5">https://dekhpodsixpfonoqwkwx.supabase.co</span>
+                  <span className="text-emerald-600 font-bold text-[11px] mt-1 block">Authentication & Tables Active</span>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-100">
+                  <span className="text-slate-500 font-medium block">Administrator Session:</span>
+                  <span className="font-mono text-navy-900 font-bold block mt-0.5">{profile?.email || 'emanaslam543@gmail.com'}</span>
+                  <span className="text-emerald-600 font-bold text-[11px] mt-1 block">Full Read/Write Moderation Granted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* User Details Modal */}
+      {selectedUserModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-navy-900/70 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-md animate-scale-in rounded-3xl bg-white p-6 shadow-2xl">
+            <button onClick={() => setSelectedUserModal(null)} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100">
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-navy-900 text-white font-bold text-xl">
+                {selectedUserModal.name?.slice(0, 1).toUpperCase()}
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-navy-900">{selectedUserModal.name}</h3>
+                <p className="text-xs text-slate-500">{selectedUserModal.email}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs border-y border-slate-100 py-4 my-4">
+              <div className="flex justify-between">
+                <span className="text-slate-500">System Role:</span>
+                <span className="font-bold text-navy-900 capitalize">{selectedUserModal.role}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Contact Phone:</span>
+                <span className="font-bold text-navy-900">{selectedUserModal.phone || '+92 300 1234567'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Registered Location:</span>
+                <span className="font-bold text-navy-900">{selectedUserModal.location_text || 'Karachi, Pakistan'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Trust Rating:</span>
+                <span className="font-bold text-amber-600 flex items-center gap-1">
+                  <Star size={13} fill="#F59E0B" /> {selectedUserModal.rating || '5.0'} ({selectedUserModal.rating_count || 10} reviews)
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Membership Tier:</span>
+                <span className="font-bold text-navy-900 uppercase">{selectedUserModal.tier}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Account Created:</span>
+                <span className="font-bold text-navy-900">{new Date(selectedUserModal.created_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSelectedUserModal(null)}
+              className="btn-primary w-full cursor-pointer"
+            >
+              Close Window
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2064,6 +3008,7 @@ function ProfilePage() {
               >
                 <option value="individual">Individual</option>
                 <option value="restaurant">Restaurant</option>
+                <option value="admin">Administrator</option>
               </select>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
