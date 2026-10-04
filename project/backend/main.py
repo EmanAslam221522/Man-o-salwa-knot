@@ -39,6 +39,11 @@ app.include_router(email.router, prefix="/api", tags=["email"])
 app.include_router(workspace.router, prefix="/api", tags=["workspace"])
 app.include_router(research.router, prefix="/api", tags=["research"])
 
+@app.get("/")
+@app.head("/")
+async def root():
+    return {"status": "healthy", "service": "ManOSalwaKnot Backend", "version": "1.0.0"}
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "version": "1.0.0"}
