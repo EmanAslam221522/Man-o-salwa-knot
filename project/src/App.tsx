@@ -7,7 +7,17 @@ import {
   ShieldAlert, Database, Activity, FileText, CheckCircle2, XCircle, ExternalLink, Eye,
   SlidersHorizontal, UserCheck, Utensils, ReceiptText, BarChart3, Filter, Trash2, Download, Layers
 } from 'lucide-react';
-import { AuthProvider, useAuth } from '@/lib/auth';
+import {
+  AuthProvider,
+  useAuth,
+  MAIN_ADMIN_EMAIL,
+  isApprovedAdmin,
+  approveAdminEmail,
+  revokeAdminEmail,
+  getPendingAdminRequests,
+  submitAdminRequest,
+  getApprovedAdminEmails
+} from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import type { FoodPost, FoodPostWithSeller, Profile, Transaction } from '@/lib/types';
 import { sendChat, getMatchmaking, analyzeQuality, notifySubscribers, sendWorkspaceMessage, getWorkspaceMessages } from '@/lib/api';
@@ -69,7 +79,7 @@ function App() {
 }
 
 function AppShell() {
-  const { session, loading } = useAuth();
+  const { session, loading, signIn } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   if (loading) return <div className="min-h-screen grid place-items-center bg-navy-900"><Loader2 className="animate-spin text-brand-green" size={32} /></div>;
@@ -77,6 +87,9 @@ function AppShell() {
     <Landing
       onSignIn={() => { setAuthMode('login'); setShowAuth(true); }}
       onSignUp={() => { setAuthMode('signup'); setShowAuth(true); }}
+      onAdminDemo={async () => {
+        await signIn('emanaslam543@gmail.com', 'admin123');
+      }}
       showAuth={showAuth}
       authMode={authMode}
       setAuthMode={setAuthMode}
@@ -89,6 +102,7 @@ function AppShell() {
 function Landing({
   onSignIn,
   onSignUp,
+  onAdminDemo,
   showAuth,
   authMode,
   setAuthMode,
@@ -96,6 +110,7 @@ function Landing({
 }: {
   onSignIn: () => void;
   onSignUp: () => void;
+  onAdminDemo: () => void;
   showAuth: boolean;
   authMode: 'login' | 'signup';
   setAuthMode: (m: 'login' | 'signup') => void;
@@ -112,6 +127,13 @@ function Landing({
             <a href="#trust" className="hover:text-white transition">Trust & safety</a>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={onAdminDemo}
+              className="flex items-center gap-1.5 rounded-xl border border-rose-400/40 bg-rose-500/20 px-3.5 py-2 text-xs font-bold text-rose-200 backdrop-blur transition hover:bg-rose-500/30 cursor-pointer shadow-sm"
+              title="1-Click Administrator Access for Evaluators"
+            >
+              <ShieldAlert size={14} className="text-rose-400" /> Admin Demo
+            </button>
             <button
               onClick={onSignIn}
               className="rounded-xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
@@ -141,12 +163,18 @@ function Landing({
               <p className="mt-6 max-w-xl text-lg leading-8 text-blue-100/75">
                 A smarter way for kitchens to recover value and for communities to access fresh, affordable meals before they go to waste.
               </p>
-              <div className="mt-9 flex flex-wrap gap-3">
+              <div className="mt-9 flex flex-wrap gap-3 items-center">
                 <button onClick={onSignUp} className="btn-primary group">
                   Join the movement <ArrowRight size={18} className="transition group-hover:translate-x-1" />
                 </button>
-                <a href="#how" className="inline-flex items-center gap-2 rounded-xl px-5 py-3 font-semibold text-white transition hover:bg-white/10">
-                  See how it works <ChevronRight size={18} />
+                <button
+                  onClick={onAdminDemo}
+                  className="inline-flex items-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/20 px-4 py-3 text-sm font-bold text-rose-200 hover:bg-rose-500/30 transition cursor-pointer"
+                >
+                  <ShieldAlert size={16} className="text-rose-400" /> Admin Console Demo
+                </button>
+                <a href="#how" className="inline-flex items-center gap-2 rounded-xl px-4 py-3 font-semibold text-white transition hover:bg-white/10 text-sm">
+                  How it works <ChevronRight size={16} />
                 </a>
               </div>
             </div>
@@ -349,21 +377,75 @@ function AuthModal({
     setBusy(true);
     setError('');
     setInfo('');
+
+    const targetEmail = email.toLowerCase().trim();
+
+    // ADMIN ACCESS LOGIC:
+    // Only emanaslam543@gmail.com (Main Admin) or verified/approved admins can log in as Admin.
+    if (role === 'admin') {
+      const isApproved = isApprovedAdmin(targetEmail);
+      if (!isApproved) {
+        // Submit admin verification request to Main Admin
+        submitAdminRequest(
+          name || targetEmail.split('@')[0],
+          targetEmail,
+          'Requested Administrator login access via portal'
+        );
+        // Send email alert to Main Admin (emanaslam543@gmail.com)
+        try {
+          await notifySubscribers(undefined, undefined, {
+            food_name: `[ADMIN ACCESS REQUEST] Verification Needed for ${name || targetEmail} (${targetEmail})`,
+            quantity: 1,
+            unit: 'Admin Authorization Ticket',
+            price: 0,
+            location_text: `Applicant: ${targetEmail} requested Administrator privileges. Please verify in the Admin Console.`,
+            sellerName: name || 'Admin Applicant'
+          });
+        } catch {}
+
+        setBusy(false);
+        setError(`⚠️ Administrator Verification Required: Your access request has been sent to the Main Administrator (emanaslam543@gmail.com). You cannot log in as an Administrator until the Main Admin verifies and approves your account. In the meantime, you can sign in with role Individual or Restaurant.`);
+        return;
+      }
+
+      // If approved or Main Admin:
+      if (mode === 'signup') {
+        const result = await signUp(targetEmail, password, name || 'Eman Aslam (SuperAdmin)', 'admin');
+        setBusy(false);
+        if (result.error) {
+          setError(result.error);
+        } else {
+          onClose();
+        }
+      } else {
+        const result = await signIn(targetEmail, password);
+        setBusy(false);
+        if (result.error) {
+          setError(result.error);
+        } else {
+          onClose();
+        }
+      }
+      return;
+    }
+
+    // REGULAR ROLES: INDIVIDUAL & RESTAURANT (Always work directly)
     if (mode === 'signup') {
-      const result = await signUp(email, password, name, role);
+      const result = await signUp(targetEmail, password, name, role);
       setBusy(false);
       if (result.error) {
         setError(result.error);
       } else {
-        setInfo('Account created! If your Supabase requires email verification, check your Gmail inbox to confirm, then sign in.');
-        setMode('login');
+        setInfo('Account created! Logging you in...');
+        await signIn(targetEmail, password);
+        onClose();
       }
     } else {
-      const result = await signIn(email, password);
+      const result = await signIn(targetEmail, password);
       setBusy(false);
       if (result.error) {
         if (result.error.toLowerCase().includes('email not confirmed')) {
-          setError('Email not confirmed yet. Please click the link sent to your Gmail inbox, or toggle "Confirm email" off in Supabase settings.');
+          setError('Email not confirmed yet. Please check your Gmail inbox to confirm, or toggle "Confirm email" off in Supabase settings.');
         } else {
           setError(result.error);
         }
@@ -375,18 +457,60 @@ function AuthModal({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-navy-900/70 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-md animate-scale-in rounded-3xl bg-white p-7 shadow-2xl">
-        <button onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100">
+      <div className="relative w-full max-w-md animate-scale-in rounded-3xl bg-white p-7 shadow-2xl max-h-[92vh] overflow-y-auto">
+        <button onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100 cursor-pointer">
           <X size={18} />
         </button>
-        <div className="mb-6">
+        <div className="mb-5">
           <Brand />
-          <h2 className="mt-6 text-2xl font-bold text-navy-900">
+          <h2 className="mt-5 text-2xl font-bold text-navy-900">
             {mode === 'login' ? 'Welcome back' : 'Join the rescue network'}
           </h2>
-          <p className="mt-2 text-sm text-slate-500">
-            {mode === 'login' ? 'Pick up where you left off.' : 'Create your account in less than a minute.'}
+          <p className="mt-1.5 text-xs text-slate-500">
+            {mode === 'login' ? 'Select your role and sign in to continue.' : 'Create your account in less than a minute.'}
           </p>
+        </div>
+
+        {/* ROLE SELECTION AT LOGIN / SIGNUP */}
+        <div className="mb-4">
+          <label className="mb-1.5 block text-xs font-bold text-navy-900">Sign in as:</label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'individual', label: '👤 Individual', desc: 'Rescuer' },
+              { id: 'restaurant', label: '🍴 Restaurant', desc: 'Kitchen' },
+              { id: 'admin', label: '🛡️ Admin', desc: 'SuperAdmin' },
+            ].map(item => (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => {
+                  setRole(item.id as any);
+                  setError('');
+                  setInfo('');
+                  if (item.id === 'admin' && !email) {
+                    setEmail('emanaslam543@gmail.com');
+                  }
+                }}
+                className={`rounded-xl border p-2.5 text-center transition cursor-pointer ${
+                  role === item.id
+                    ? item.id === 'admin'
+                      ? 'border-rose-500 bg-rose-50 text-rose-700 font-bold shadow-xs'
+                      : 'border-brand-green bg-brand-green-50 text-brand-green-dark font-bold shadow-xs'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                }`}
+              >
+                <div className="text-xs font-bold">{item.label}</div>
+                <div className="text-[10px] opacity-70 mt-0.5">{item.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {role === 'admin' && (
+            <div className="mt-2.5 rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-[11px] text-rose-800 leading-relaxed">
+              <strong className="block font-bold mb-0.5">🛡️ Admin Verification Protection</strong>
+              Main Admin (<span className="font-mono font-semibold">emanaslam543@gmail.com</span>) has automatic root access. New admin applicants require verification by the Main Admin before admin login is permitted.
+            </div>
+          )}
         </div>
 
         {info && (
@@ -395,41 +519,97 @@ function AuthModal({
           </div>
         )}
 
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} className="space-y-3.5">
           {mode === 'signup' && (
             <input required className="input-field" placeholder="Your full name" value={name} onChange={e => setName(e.target.value)} />
           )}
           <input required type="email" className="input-field" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} />
           <input required minLength={6} type="password" className="input-field" placeholder="Password (6+ characters)" value={password} onChange={e => setPassword(e.target.value)} />
-          {mode === 'signup' && (
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-slate-600">Choose your account type:</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['individual', 'restaurant'] as Profile['role'][]).map(item => (
-                  <button
-                    type="button"
-                    key={item}
-                    onClick={() => setRole(item)}
-                    className={`rounded-xl border px-3 py-3 text-xs font-bold capitalize transition ${role === item ? 'border-brand-green bg-brand-green-50 text-brand-green-dark shadow-sm' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                  >
-                    {item === 'restaurant' ? '🍴 Restaurant' : '👤 Individual'}
-                  </button>
-                ))}
-              </div>
+
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 leading-relaxed">
+              {error}
             </div>
           )}
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
-          <button disabled={busy} className="btn-primary w-full disabled:opacity-60">
-            {busy ? <Loader2 className="animate-spin" size={17} /> : mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRight size={17} />
+
+          <button disabled={busy} className="btn-primary w-full disabled:opacity-60 cursor-pointer">
+            {busy ? (
+              <Loader2 className="animate-spin" size={17} />
+            ) : mode === 'login' ? (
+              role === 'admin' ? 'Verify & Sign in as Admin' : 'Sign in'
+            ) : (
+              role === 'admin' ? 'Request Admin Verification' : 'Create account'
+            )} <ArrowRight size={17} />
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
+        <p className="mt-5 text-center text-xs text-slate-500">
           {mode === 'login' ? "Don't have an account?" : 'Already part of the movement?'}{' '}
-          <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setInfo(''); }} className="font-bold text-brand-green-dark hover:underline">
+          <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setInfo(''); }} className="font-bold text-brand-green-dark hover:underline cursor-pointer">
             {mode === 'login' ? 'Sign up' : 'Sign in'}
           </button>
         </p>
+
+        <div className="mt-5 pt-4 border-t border-slate-100">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center mb-2">
+            Instant 1-Click Role Login (Demo & Testing)
+          </p>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <button
+              type="button"
+              onClick={async () => {
+                setBusy(true);
+                await signIn('emanaslam543@gmail.com', 'admin123');
+                setBusy(false);
+                onClose();
+              }}
+              className="rounded-xl border border-rose-200 bg-rose-50 py-2 px-1 text-center font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+              title="Main Admin emanaslam543@gmail.com"
+            >
+              🛡️ Main Admin
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setBusy(true);
+                await signIn('nawab.kitchen@gmail.com', 'kitchen123');
+                setBusy(false);
+                onClose();
+              }}
+              className="rounded-xl border border-emerald-200 bg-emerald-50 py-2 px-1 text-center font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+            >
+              🍴 Kitchen
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setBusy(true);
+                await signIn('ahmad.raza@gmail.com', 'rescuer123');
+                setBusy(false);
+                onClose();
+              }}
+              className="rounded-xl border border-blue-200 bg-blue-50 py-2 px-1 text-center font-bold text-blue-700 hover:bg-blue-100 transition cursor-pointer"
+            >
+              👤 Rescuer
+            </button>
+          </div>
+
+          <div className="mt-2 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('tariq.audit@salwa.org');
+                setPassword('audit123');
+                setRole('admin');
+                setError('');
+                setInfo('Simulating unverified applicant: Click "Verify & Sign in as Admin" to test the verification request notification!');
+              }}
+              className="text-[11px] font-semibold text-slate-500 hover:text-navy-900 underline cursor-pointer"
+            >
+              Test Unverified Admin Access Flow ➔
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -461,7 +641,7 @@ function Workspace() {
             { id: 'history', label: 'My activity', icon: <Package size={19} /> },
             { id: 'quality', label: 'Food quality AI', icon: <Shield size={19} /> },
             { id: 'workspace', label: 'Business chat', icon: <MessageSquare size={19} /> },
-            { id: 'admin', label: 'Admin Console', icon: <ShieldAlert size={19} /> },
+            ...(profile?.role === 'admin' ? [{ id: 'admin' as View, label: 'Admin Console', icon: <ShieldAlert size={19} /> }] : []),
             { id: 'profile', label: 'Profile', icon: <UserRound size={19} /> },
           ] as { id: View; label: string; icon: ReactNode }[])
             .map(item => (
@@ -502,7 +682,7 @@ function Workspace() {
             >
               <option value="individual">Individual</option>
               <option value="restaurant">Restaurant</option>
-              <option value="admin">Administrator</option>
+              {profile?.role === 'admin' && <option value="admin">Administrator</option>}
             </select>
           </div>
           <button
@@ -2076,13 +2256,45 @@ function BusinessWorkspace() {
 
 function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSeller) => void }) {
   const { profile } = useAuth();
-  const [tab, setTab] = useState<'overview' | 'users' | 'listings' | 'requests' | 'audit'>('overview');
+  const [tab, setTab] = useState<'overview' | 'approvals' | 'users' | 'listings' | 'requests' | 'chats' | 'audit'>('overview');
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'individual' | 'restaurant' | 'admin'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'reserved' | 'sold'>('all');
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedUserModal, setSelectedUserModal] = useState<Profile | null>(null);
 
+  // Admin Approvals state
+  const [adminRequests, setAdminRequests] = useState(() => getPendingAdminRequests());
+  const [approvedAdmins, setApprovedAdmins] = useState<string[]>(() => getApprovedAdminEmails());
+  const [newAdminEmailInput, setNewAdminEmailInput] = useState('');
+  const [adminFeedback, setAdminFeedback] = useState('');
+  const [testEmailBusy, setTestEmailBusy] = useState(false);
+
+  const pendingCount = adminRequests.filter(r => r.status === 'pending').length;
+
+  // Modals & Drawers
+  const [selectedUserDrillDown, setSelectedUserDrillDown] = useState<Profile | null>(null);
+  const [drillDownTab, setDrillDownTab] = useState<'posts' | 'requests' | 'info'>('posts');
+  const [inspectingFood, setInspectingFood] = useState<FoodPostWithSeller | null>(null);
+  const [qualityResult, setQualityResult] = useState<QualityAnalysis | null>(null);
+  const [qualityBusy, setQualityBusy] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Admin New Post Form
+  const [newFoodName, setNewFoodName] = useState('Banquet Chicken Karahi & Naan');
+  const [newFoodQty, setNewFoodQty] = useState('10');
+  const [newFoodUnit, setNewFoodUnit] = useState('portions');
+  const [newFoodPrice, setNewFoodPrice] = useState('280');
+  const [newFoodOrig, setNewFoodOrig] = useState('600');
+  const [newFoodKitchen, setNewFoodKitchen] = useState('Nawab Kitchen');
+  const [newFoodLoc, setNewFoodLoc] = useState('Bahadurabad, Karachi');
+  const [newFoodImg, setNewFoodImg] = useState('https://images.pexels.com/photos/674574/pexels-photo-674574.jpeg?auto=compress&cs=tinysrgb&w=900');
+
+  // Admin Chat Monitoring
+  const [adminChatPostId, setAdminChatPostId] = useState<string | null>(null);
+  const [adminChatMsgs, setAdminChatMsgs] = useState<WorkspaceMessage[]>([]);
+  const [adminChatInput, setAdminChatInput] = useState('');
+
+  // Live state
   const [users, setUsers] = useState<Profile[]>([]);
   const [listings, setListings] = useState<FoodPostWithSeller[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -2091,6 +2303,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
   async function loadData() {
     setRefreshing(true);
     try {
+      // 1. Fetch Users
       const { data: supaProfiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       const defaultUsers: Profile[] = [
         {
@@ -2223,6 +2436,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
       });
       setUsers(mergedUsers);
 
+      // 2. Fetch Listings
       const localPosts = getStoredLocalPosts();
       const { data: supaPosts } = await supabase.from('food_posts').select('*, seller:profiles!user_id(id,name,rating,rating_count,role)').order('created_at', { ascending: false });
       const mergedListings = [...localPosts];
@@ -2235,7 +2449,11 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
         if (!mergedListings.some(l => l.id === mf.id)) mergedListings.push(mf);
       });
       setListings(mergedListings);
+      if (!adminChatPostId && mergedListings.length > 0) {
+        setAdminChatPostId(mergedListings[0].id);
+      }
 
+      // 3. Fetch Transactions
       const localTx = getStoredReservations();
       const { data: supaTx } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
       const defaultTx: Transaction[] = [
@@ -2277,6 +2495,19 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
           status: 'pending',
           delivered_at: null,
           created_at: new Date(Date.now() - 15 * 60000).toISOString()
+        },
+        {
+          id: 'RSV-6190',
+          buyer_id: 'bilal.k99@gmail.com',
+          seller_id: 'Nawab Kitchen',
+          food_id: 'mock-1',
+          food_name: 'Chicken Biryani (4 portions)',
+          amount: 200,
+          commission: 0,
+          payment_method: 'upi',
+          status: 'completed',
+          delivered_at: new Date(Date.now() - 120 * 60000).toISOString(),
+          created_at: new Date(Date.now() - 180 * 60000).toISOString()
         }
       ];
 
@@ -2307,6 +2538,15 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
     loadData();
   }, [profile]);
 
+  // Load chat messages when adminChatPostId changes
+  useEffect(() => {
+    if (!adminChatPostId) return;
+    getWorkspaceMessages(adminChatPostId).then(res => {
+      setAdminChatMsgs(res.messages || []);
+    });
+  }, [adminChatPostId]);
+
+  // Status moderation
   async function togglePostStatus(postId: string, newStatus: 'available' | 'reserved' | 'sold') {
     setListings(prev => prev.map(p => p.id === postId ? { ...p, status: newStatus } : p));
     try {
@@ -2314,6 +2554,18 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
     } catch {}
     try {
       const local = getStoredLocalPosts().map(p => p.id === postId ? { ...p, status: newStatus } : p);
+      localStorage.setItem('salwa_local_posts', JSON.stringify(local));
+    } catch {}
+  }
+
+  async function deleteListing(postId: string) {
+    if (!confirm('Are you sure you want to remove this food drop from the public platform?')) return;
+    setListings(prev => prev.filter(p => p.id !== postId));
+    try {
+      await supabase.from('food_posts').delete().eq('id', postId);
+    } catch {}
+    try {
+      const local = getStoredLocalPosts().filter(p => p.id !== postId);
       localStorage.setItem('salwa_local_posts', JSON.stringify(local));
     } catch {}
   }
@@ -2327,6 +2579,151 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
       const local = getStoredReservations().map(t => t.id === txId ? { ...t, status: newStatus } : t);
       localStorage.setItem('salwa_local_reservations', JSON.stringify(local));
     } catch {}
+  }
+
+  async function handleApproveReq(req: any) {
+    approveAdminEmail(req.email);
+    setAdminRequests(getPendingAdminRequests());
+    setApprovedAdmins(getApprovedAdminEmails());
+    setAuditLogs(prev => [
+      { id: Date.now().toString(), time: 'Just now', event: `SuperAdmin approval granted to ${req.email}. Account promoted to Administrator.`, status: 'ok' },
+      ...prev
+    ]);
+    // Notify applicant by email
+    try {
+      await notifySubscribers(undefined, undefined, {
+        food_name: `[ADMIN ACCESS GRANTED] Approval Verified for ${req.email}`,
+        quantity: 1,
+        unit: 'Admin Access Granted',
+        price: 0,
+        location_text: `Your administrator request has been approved by Main Admin (${MAIN_ADMIN_EMAIL}). You can now log in as Administrator.`,
+        sellerName: 'Main SuperAdmin'
+      });
+    } catch {}
+    setAdminFeedback(`Approved ${req.email}! They are now verified and can sign in with Administrator privileges.`);
+  }
+
+  function handleRejectReq(req: any) {
+    revokeAdminEmail(req.email);
+    setAdminRequests(getPendingAdminRequests());
+    setAuditLogs(prev => [
+      { id: Date.now().toString(), time: 'Just now', event: `Admin request for ${req.email} was rejected by SuperAdmin.`, status: 'warn' },
+      ...prev
+    ]);
+    setAdminFeedback(`Rejected request for ${req.email}.`);
+  }
+
+  function handleRevokeAdmin(emailToRevoke: string) {
+    if (emailToRevoke.toLowerCase() === MAIN_ADMIN_EMAIL) {
+      alert('Cannot revoke Main Super Administrator!');
+      return;
+    }
+    revokeAdminEmail(emailToRevoke);
+    setApprovedAdmins(getApprovedAdminEmails());
+    setAdminRequests(getPendingAdminRequests());
+    setAuditLogs(prev => [
+      { id: Date.now().toString(), time: 'Just now', event: `Administrator privileges revoked for ${emailToRevoke}.`, status: 'warn' },
+      ...prev
+    ]);
+    setAdminFeedback(`Revoked administrator privileges for ${emailToRevoke}.`);
+  }
+
+  function handleDirectWhitelist(e: FormEvent) {
+    e.preventDefault();
+    if (!newAdminEmailInput.trim()) return;
+    const clean = newAdminEmailInput.toLowerCase().trim();
+    approveAdminEmail(clean);
+    setApprovedAdmins(getApprovedAdminEmails());
+    setAdminRequests(getPendingAdminRequests());
+    setAuditLogs(prev => [
+      { id: Date.now().toString(), time: 'Just now', event: `Manually whitelisted ${clean} as Administrator.`, status: 'ok' },
+      ...prev
+    ]);
+    setNewAdminEmailInput('');
+    setAdminFeedback(`Whitelisted ${clean} as verified Administrator!`);
+  }
+
+  async function handleSendTestAlert() {
+    setTestEmailBusy(true);
+    try {
+      await notifySubscribers(undefined, undefined, {
+        food_name: `[ADMIN GATEWAY TEST] Live Surveillance Verification Alert`,
+        quantity: 1,
+        unit: 'Live Admin Gateway Test',
+        price: 0,
+        location_text: `Live test notification dispatched to Main SuperAdmin (${MAIN_ADMIN_EMAIL}). Verification routing is active.`,
+        sellerName: 'System Auditor'
+      });
+      setAdminFeedback(`Live verification test email sent to ${MAIN_ADMIN_EMAIL}! Check your Gmail inbox.`);
+    } catch {
+      setAdminFeedback('Could not send test email right now.');
+    } finally {
+      setTestEmailBusy(false);
+    }
+  }
+
+  async function inspectFoodQuality(post: FoodPostWithSeller) {
+    setInspectingFood(post);
+    setQualityBusy(true);
+    try {
+      const res = await analyzeQuality(post.photo_url || '');
+      setQualityResult(res);
+    } catch {
+      // fallback
+    } finally {
+      setQualityBusy(false);
+    }
+  }
+
+  async function handleCreatePost(e: FormEvent) {
+    e.preventDefault();
+    const newPost: FoodPostWithSeller = {
+      id: 'admin-post-' + Date.now(),
+      user_id: profile?.id || 'admin-root',
+      food_name: newFoodName,
+      quantity: Number(newFoodQty) || 10,
+      unit: newFoodUnit,
+      price: Number(newFoodPrice) || 250,
+      original_price: Number(newFoodOrig) || 500,
+      expiry_time: new Date(Date.now() + 4 * 3600000).toISOString(),
+      location_text: newFoodLoc,
+      photo_url: newFoodImg,
+      description: 'Verified banquet surplus drop published directly via Admin Surveillance Console.',
+      status: 'available',
+      lat: 24.8607,
+      lng: 67.0011,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      seller: {
+        id: profile?.id || 'seller-admin',
+        name: newFoodKitchen,
+        rating: 4.9,
+        rating_count: 32,
+        role: 'restaurant'
+      }
+    };
+
+    saveStoredLocalPost(newPost);
+    setListings(prev => [newPost, ...prev]);
+    setShowCreateModal(false);
+    try {
+      await supabase.from('food_posts').insert(newPost as any);
+    } catch {}
+  }
+
+  async function sendAdminChatMsg(e: FormEvent) {
+    e.preventDefault();
+    if (!adminChatInput.trim() || !adminChatPostId) return;
+    await sendWorkspaceMessage(
+      adminChatPostId,
+      profile?.id || 'admin-root',
+      `${profile?.name || 'Admin'} (SuperAdmin Supervisor)`,
+      'admin',
+      adminChatInput
+    );
+    setAdminChatInput('');
+    const res = await getWorkspaceMessages(adminChatPostId);
+    setAdminChatMsgs(res.messages || []);
   }
 
   const filteredUsers = useMemo(() => {
@@ -2497,9 +2894,11 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
             {[
               { id: 'overview', label: 'Surveillance Overview', icon: <BarChart3 size={15} /> },
+              { id: 'approvals', label: `Admin Approvals (${pendingCount})`, icon: <UserCheck size={15} />, badge: pendingCount },
               { id: 'users', label: `Accounts (${users.length})`, icon: <Users size={15} /> },
               { id: 'listings', label: `Food Inventory (${listings.length})`, icon: <Utensils size={15} /> },
               { id: 'requests', label: `Claims Ledger (${transactions.length})`, icon: <ReceiptText size={15} /> },
+              { id: 'chats', label: 'Coordination Chats', icon: <MessageSquare size={15} /> },
               { id: 'audit', label: 'Audit & Health', icon: <Activity size={15} /> },
             ].map(t => (
               <button
@@ -2509,6 +2908,11 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               >
                 {t.icon}
                 <span>{t.label}</span>
+                {t.id === 'approvals' && pendingCount > 0 && (
+                  <span className="rounded-full bg-amber-500 text-white px-1.5 py-0.2 text-[10px] font-extrabold">
+                    {pendingCount}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -2524,12 +2928,213 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               />
             </div>
             {search && (
-              <button onClick={() => setSearch('')} className="p-1 text-slate-400 hover:text-navy-900">
+              <button onClick={() => setSearch('')} className="p-1 text-slate-400 hover:text-navy-900 cursor-pointer">
                 <X size={14} />
               </button>
             )}
           </div>
         </div>
+
+        {/* TAB: ADMIN APPROVALS & VERIFICATION GATEWAY */}
+        {tab === 'approvals' && (
+          <div className="pt-6 space-y-6">
+            {adminFeedback && (
+              <div className="flex items-center justify-between rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-xs font-bold text-emerald-800 animate-fade-in-up">
+                <div className="flex items-center gap-2">
+                  <CheckCircle size={16} className="text-emerald-600" />
+                  <span>{adminFeedback}</span>
+                </div>
+                <button onClick={() => setAdminFeedback('')} className="text-emerald-600 hover:text-emerald-900 cursor-pointer">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* SUPERADMIN ROOT BANNER */}
+            <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-5 shadow-xs">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-rose-600 text-white font-bold shadow-md">
+                    <ShieldAlert size={24} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-extrabold uppercase tracking-wider text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full border border-rose-200">
+                        SuperAdmin Authority
+                      </span>
+                      <span className="text-xs text-rose-900 font-bold">
+                        Main Admin: <span className="font-mono">{MAIN_ADMIN_EMAIL}</span>
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-rose-800">
+                      Users who request Administrator access at login are held in pending verification. They cannot access this console until verified by you.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleSendTestAlert}
+                    disabled={testEmailBusy}
+                    className="flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 transition cursor-pointer shadow-xs"
+                    title="Send live verification alert to emanaslam543@gmail.com"
+                  >
+                    {testEmailBusy ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
+                    <span>Dispatch Test Alert to Gmail</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* PENDING APPROVAL REQUESTS */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="grid h-8 w-8 place-items-center rounded-lg bg-amber-50 text-amber-700">
+                    <UserCheck size={16} />
+                  </div>
+                  <h3 className="font-bold text-navy-900 text-sm">
+                    Pending Admin Access Requests ({pendingCount})
+                  </h3>
+                </div>
+                <span className="text-xs text-slate-500">
+                  Alerts are routed directly to <strong className="text-navy-900">{MAIN_ADMIN_EMAIL}</strong>
+                </span>
+              </div>
+
+              {adminRequests.filter(r => r.status === 'pending').length === 0 ? (
+                <div className="py-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                  <ShieldCheck size={32} className="mx-auto mb-2 text-emerald-500" />
+                  <p className="text-xs font-semibold text-navy-900">All caught up!</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">There are no pending administrator verification requests at this time.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="pb-3">Applicant Name</th>
+                        <th className="pb-3">Email Address</th>
+                        <th className="pb-3">Reason / Context</th>
+                        <th className="pb-3">Requested At</th>
+                        <th className="pb-3 text-right">Verification Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {adminRequests.filter(r => r.status === 'pending').map(req => (
+                        <tr key={req.id} className="hover:bg-slate-50/70 transition">
+                          <td className="py-3.5 font-bold text-navy-900">
+                            {req.name}
+                          </td>
+                          <td className="py-3.5 font-mono text-slate-600">
+                            {req.email}
+                          </td>
+                          <td className="py-3.5 text-slate-500 max-w-xs truncate">
+                            {req.reason}
+                          </td>
+                          <td className="py-3.5 text-slate-400">
+                            {timeAgo(req.requestedAt)}
+                          </td>
+                          <td className="py-3.5 text-right space-x-2">
+                            <button
+                              onClick={() => handleApproveReq(req)}
+                              className="rounded-lg bg-brand-green px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-green-dark transition cursor-pointer shadow-xs"
+                            >
+                              ✓ Approve as Admin
+                            </button>
+                            <button
+                              onClick={() => handleRejectReq(req)}
+                              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                            >
+                              ✗ Reject
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* DIRECT WHITELIST & APPROVED ADMINS LIST */}
+            <div className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+              {/* CURRENTLY APPROVED ADMINS */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="grid h-8 w-8 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
+                    <ShieldCheck size={16} />
+                  </div>
+                  <h3 className="font-bold text-navy-900 text-sm">
+                    Verified Administrators Directory ({approvedAdmins.length})
+                  </h3>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {approvedAdmins.map(admEmail => {
+                    const isMain = admEmail.toLowerCase() === MAIN_ADMIN_EMAIL;
+                    return (
+                      <div key={admEmail} className="py-3 flex items-center justify-between">
+                        <div>
+                          <p className="font-mono text-xs font-bold text-navy-900">{admEmail}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {isMain ? 'Permanent SuperAdmin · Root Authority' : 'Verified Administrator'}
+                          </p>
+                        </div>
+                        <div>
+                          {isMain ? (
+                            <span className="badge bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+                              Permanent SuperAdmin
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleRevokeAdmin(admEmail)}
+                              className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-600 hover:bg-red-100 transition cursor-pointer"
+                            >
+                              Revoke Access
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* WHITELIST NEW ADMIN DIRECTLY */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 text-blue-700">
+                    <Plus size={16} />
+                  </div>
+                  <h3 className="font-bold text-navy-900 text-sm">
+                    Directly Authorize New Administrator
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  Authorize a trusted staff member or supervisor by entering their email address. They will be immediately permitted to sign in as an Administrator.
+                </p>
+
+                <form onSubmit={handleDirectWhitelist} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-navy-900 mb-1">Administrator Email Address</label>
+                    <input
+                      required
+                      type="email"
+                      value={newAdminEmailInput}
+                      onChange={e => setNewAdminEmailInput(e.target.value)}
+                      placeholder="e.g. auditor@salwa.org"
+                      className="input-field text-xs"
+                    />
+                  </div>
+                  <button type="submit" className="btn-primary w-full text-xs font-bold cursor-pointer py-2.5">
+                    + Grant Administrator Privileges
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* TAB 1: OVERVIEW */}
         {tab === 'overview' && (
@@ -2538,7 +3143,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
                 <h3 className="font-bold text-navy-900 text-sm mb-4 flex items-center justify-between">
                   <span>Recent Platform Claims & Reservations</span>
-                  <button onClick={() => setTab('requests')} className="text-xs text-brand-green-dark hover:underline font-semibold">View All ({transactions.length})</button>
+                  <button onClick={() => setTab('requests')} className="text-xs text-brand-green-dark hover:underline font-semibold cursor-pointer">View All ({transactions.length})</button>
                 </h3>
                 <div className="space-y-3">
                   {transactions.slice(0, 4).map(tx => (
@@ -2563,7 +3168,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
                 <h3 className="font-bold text-navy-900 text-sm mb-4 flex items-center justify-between">
                   <span>Active Surplus Drops Under Monitoring</span>
-                  <button onClick={() => setTab('listings')} className="text-xs text-brand-green-dark hover:underline font-semibold">View All ({listings.length})</button>
+                  <button onClick={() => setTab('listings')} className="text-xs text-brand-green-dark hover:underline font-semibold cursor-pointer">View All ({listings.length})</button>
                 </h3>
                 <div className="space-y-3">
                   {listings.slice(0, 4).map(p => (
@@ -2613,7 +3218,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
           </div>
         )}
 
-        {/* TAB 2: ALL USER ACCOUNTS */}
+        {/* TAB 2: ALL USER ACCOUNTS & RESTAURANTS */}
         {tab === 'users' && (
           <div className="pt-6 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2635,65 +3240,73 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider border-b border-slate-200 text-[10px]">
                   <tr>
-                    <th className="p-3.5 font-bold">Account User</th>
+                    <th className="p-3.5 font-bold">Account User / Kitchen</th>
                     <th className="p-3.5 font-bold">Email</th>
                     <th className="p-3.5 font-bold">Role</th>
                     <th className="p-3.5 font-bold">Location</th>
                     <th className="p-3.5 font-bold">Rating</th>
                     <th className="p-3.5 font-bold">Tier</th>
-                    <th className="p-3.5 font-bold text-right">Action</th>
+                    <th className="p-3.5 font-bold text-right">Deep-Dive & Activity</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {filteredUsers.map(u => (
-                    <tr key={u.id} className="hover:bg-slate-50/70 transition">
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className={`grid h-8 w-8 place-items-center rounded-full text-xs font-bold text-white ${u.role === 'admin' ? 'bg-rose-600' : u.role === 'restaurant' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
-                            {u.name?.slice(0, 1).toUpperCase()}
+                  {filteredUsers.map(u => {
+                    const postCount = listings.filter(l => l.user_id === u.id || l.seller?.id === u.id || l.seller?.name?.toLowerCase() === u.name?.toLowerCase()).length;
+                    const reqCount = transactions.filter(t => t.seller_id?.toLowerCase() === u.name?.toLowerCase() || t.seller_id === u.id || t.buyer_id?.toLowerCase() === u.email?.toLowerCase()).length;
+
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50/70 transition">
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`grid h-8 w-8 place-items-center rounded-full text-xs font-bold text-white ${u.role === 'admin' ? 'bg-rose-600' : u.role === 'restaurant' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                              {u.name?.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-navy-900">{u.name}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">ID: {u.id.slice(0, 10)}...</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-bold text-navy-900">{u.name}</p>
-                            <p className="text-[10px] text-slate-400 font-mono">ID: {u.id.slice(0, 12)}...</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-3.5 font-medium text-slate-700">{u.email || 'N/A'}</td>
-                      <td className="p-3.5">
-                        <span className={`badge text-[10px] capitalize font-bold ${u.role === 'admin' ? 'bg-rose-50 text-rose-700 border border-rose-200' : u.role === 'restaurant' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-slate-600">{u.location_text || 'Karachi, Pakistan'}</td>
-                      <td className="p-3.5">
-                        <span className="flex items-center gap-1 font-bold text-amber-600">
-                          <Star size={12} fill="#F59E0B" /> {u.rating || '5.0'}
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        <span className="capitalize font-semibold text-slate-600">{u.tier}</span>
-                      </td>
-                      <td className="p-3.5 text-right">
-                        <button
-                          onClick={() => setSelectedUserModal(u)}
-                          className="rounded-lg bg-slate-100 hover:bg-navy-900 hover:text-white px-2.5 py-1 text-[11px] font-semibold text-navy-900 transition cursor-pointer"
-                        >
-                          View Details
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="p-3.5 font-medium text-slate-700">{u.email || 'N/A'}</td>
+                        <td className="p-3.5">
+                          <span className={`badge text-[10px] capitalize font-bold ${u.role === 'admin' ? 'bg-rose-50 text-rose-700 border border-rose-200' : u.role === 'restaurant' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-600">{u.location_text || 'Karachi, Pakistan'}</td>
+                        <td className="p-3.5">
+                          <span className="flex items-center gap-1 font-bold text-amber-600">
+                            <Star size={12} fill="#F59E0B" /> {u.rating || '5.0'}
+                          </span>
+                        </td>
+                        <td className="p-3.5">
+                          <span className="capitalize font-semibold text-slate-600">{u.tier}</span>
+                        </td>
+                        <td className="p-3.5 text-right">
+                          <button
+                            onClick={() => {
+                              setSelectedUserDrillDown(u);
+                              setDrillDownTab(u.role === 'restaurant' || u.role === 'hostel' ? 'posts' : 'requests');
+                            }}
+                            className="rounded-lg bg-navy-900 hover:bg-navy-800 text-white px-3 py-1.5 text-[11px] font-bold transition cursor-pointer shadow-xs"
+                          >
+                            Inspect Activity ({u.role === 'restaurant' || u.role === 'hostel' ? `${postCount} Drops` : `${reqCount} Claims`})
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         )}
 
-        {/* TAB 3: FOOD INVENTORY */}
+        {/* TAB 3: FOOD INVENTORY & MODERATION */}
         {tab === 'listings' && (
           <div className="pt-6 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {(['all', 'available', 'reserved', 'sold'] as const).map(st => (
                   <button
                     key={st}
@@ -2704,7 +3317,15 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                   </button>
                 ))}
               </div>
-              <span className="text-xs text-slate-500 font-medium">Showing {filteredListings.length} drops</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-brand-green hover:bg-brand-green-dark text-white text-xs font-bold px-3 py-2 cursor-pointer transition shadow-xs"
+                >
+                  <Plus size={14} /> Add Drop as Admin
+                </button>
+                <span className="text-xs text-slate-500 font-medium">Showing {filteredListings.length} drops</span>
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-2xl border border-slate-200">
@@ -2757,10 +3378,17 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                       </td>
                       <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
                         <button
-                          onClick={() => onSelectFood(post)}
-                          className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-navy-900 transition cursor-pointer"
+                          onClick={() => inspectFoodQuality(post)}
+                          className="rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1 text-[10px] font-bold cursor-pointer"
+                          title="Run Gemini 2.0 AI Vision Quality & Hygiene Audit"
                         >
-                          View Modal
+                          AI Hygiene Audit
+                        </button>
+                        <button
+                          onClick={() => onSelectFood(post)}
+                          className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2 py-1 text-[10px] font-semibold text-navy-900 transition cursor-pointer"
+                        >
+                          Customer Modal
                         </button>
                         {post.status !== 'available' && (
                           <button
@@ -2778,6 +3406,13 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                             Set Reserved
                           </button>
                         )}
+                        <button
+                          onClick={() => deleteListing(post.id)}
+                          className="rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2 py-1 text-[10px] font-bold cursor-pointer"
+                          title="Remove listing from platform"
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -2827,16 +3462,25 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                           {tx.status}
                         </span>
                       </td>
-                      <td className="p-3.5 text-right whitespace-nowrap">
-                        {tx.status !== 'completed' ? (
+                      <td className="p-3.5 text-right whitespace-nowrap space-x-1">
+                        {tx.status !== 'completed' && (
                           <button
                             onClick={() => updateTxStatus(tx.id, 'completed')}
                             className="rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold cursor-pointer"
                           >
                             Mark Completed
                           </button>
-                        ) : (
-                          <span className="text-[11px] text-emerald-600 font-semibold flex items-center justify-end gap-1">
+                        )}
+                        {tx.status === 'pending' && (
+                          <button
+                            onClick={() => updateTxStatus(tx.id, 'ready')}
+                            className="rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2 py-1 text-[10px] font-bold cursor-pointer"
+                          >
+                            Set Ready
+                          </button>
+                        )}
+                        {tx.status === 'completed' && (
+                          <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
                             <CheckCircle size={13} /> Verified
                           </span>
                         )}
@@ -2849,7 +3493,76 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
           </div>
         )}
 
-        {/* TAB 5: AUDIT LOGS & HEALTH */}
+        {/* TAB 5: LIVE COORDINATION CHATS MONITOR */}
+        {tab === 'chats' && (
+          <div className="pt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Live Kitchen & Customer Coordination Feed</h3>
+              <span className="text-xs text-slate-500 font-medium">Transparent surveillance of all active drop chats</span>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-[.38fr_1fr]">
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                {listings.map(post => (
+                  <button
+                    key={post.id}
+                    onClick={() => setAdminChatPostId(post.id)}
+                    className={`card w-full p-3 text-left transition cursor-pointer ${adminChatPostId === post.id ? 'border-brand-green ring-2 ring-brand-green/20 bg-brand-green-50/20' : 'card-hover'}`}
+                  >
+                    <p className="font-bold text-navy-900 text-xs">{post.food_name}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{post.seller?.name || 'Kitchen'} · {post.location_text}</p>
+                    <p className="text-[10px] text-brand-green-dark font-bold mt-1">{formatPrice(post.price)}</p>
+                  </button>
+                ))}
+              </div>
+
+              <div className="card overflow-hidden flex flex-col h-[500px]">
+                <div className="border-b border-slate-100 bg-slate-50/70 p-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-brand-green animate-pulse" />
+                    <span className="text-xs font-bold text-navy-900">
+                      Channel: {listings.find(l => l.id === adminChatPostId)?.food_name || 'Drop Channel'}
+                    </span>
+                  </div>
+                  <span className="badge bg-slate-100 text-slate-600 text-[10px]">Supervisor Mode</span>
+                </div>
+
+                <div className="flex-1 space-y-2.5 overflow-y-auto p-4 bg-[#fbfdfc]">
+                  {adminChatMsgs.length === 0 ? (
+                    <div className="text-center py-16 text-slate-400 text-xs">
+                      <MessageSquare className="mx-auto mb-2 opacity-40" size={28} />
+                      No messages exchanged in this channel yet.
+                    </div>
+                  ) : adminChatMsgs.map((m, i) => (
+                    <div key={i} className={`flex gap-2 ${m.senderRole === 'admin' ? 'justify-center' : m.senderRole === 'restaurant' ? 'justify-start' : 'justify-end'}`}>
+                      <div className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-xs ${m.senderRole === 'admin' ? 'bg-rose-50 border border-rose-200 text-rose-800 text-center' : m.senderRole === 'restaurant' ? 'bg-white border border-slate-200 text-navy-900' : 'bg-navy-900 text-white'}`}>
+                        <p className="text-[9px] font-bold opacity-70 mb-0.5">{m.senderName} ({m.senderRole})</p>
+                        <p>{m.content}</p>
+                        <p className="text-[9px] opacity-40 text-right mt-1">{new Date(m.timestamp).toLocaleTimeString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-3 border-t border-slate-100 bg-white">
+                  <form onSubmit={sendAdminChatMsg} className="flex gap-2">
+                    <input
+                      value={adminChatInput}
+                      onChange={e => setAdminChatInput(e.target.value)}
+                      placeholder="Send official admin message into this coordination channel..."
+                      className="input-field text-xs py-2"
+                    />
+                    <button type="submit" className="btn-primary shrink-0 text-xs px-3 py-2 cursor-pointer">
+                      Send
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: AUDIT LOGS & HEALTH */}
         {tab === 'audit' && (
           <div className="pt-6 space-y-6">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5">
@@ -2884,58 +3597,339 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
         )}
       </div>
 
-      {/* User Details Modal */}
-      {selectedUserModal && (
+      {/* USER & RESTAURANT DEEP-DIVE DRILL-DOWN MODAL */}
+      {selectedUserDrillDown && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-navy-900/70 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-md animate-scale-in rounded-3xl bg-white p-6 shadow-2xl">
-            <button onClick={() => setSelectedUserModal(null)} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100">
+          <div className="relative w-full max-w-2xl animate-scale-in rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setSelectedUserDrillDown(null)} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100 cursor-pointer">
+              <X size={18} />
+            </button>
+
+            {/* Header info */}
+            <div className="flex items-center gap-4 mb-5 pb-4 border-b border-slate-100">
+              <div className={`grid h-14 w-14 place-items-center rounded-2xl text-xl font-extrabold text-white ${selectedUserDrillDown.role === 'admin' ? 'bg-rose-600' : selectedUserDrillDown.role === 'restaurant' || selectedUserDrillDown.role === 'hostel' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                {selectedUserDrillDown.name?.slice(0, 1).toUpperCase()}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xl font-bold text-navy-900">{selectedUserDrillDown.name}</h3>
+                  <span className="badge text-[10px] capitalize font-bold bg-slate-100 text-slate-700">
+                    {selectedUserDrillDown.role}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">{selectedUserDrillDown.email} · {selectedUserDrillDown.location_text || 'Karachi, Pakistan'}</p>
+                <div className="flex items-center gap-3 mt-1 text-xs">
+                  <span className="text-amber-600 font-bold flex items-center gap-1">
+                    <Star size={12} fill="#F59E0B" /> {selectedUserDrillDown.rating || '5.0'} Rating
+                  </span>
+                  <span className="text-slate-400">·</span>
+                  <span className="text-slate-600 capitalize font-medium">{selectedUserDrillDown.tier} Tier</span>
+                  <span className="text-slate-400">·</span>
+                  <span className="text-slate-500">Phone: {selectedUserDrillDown.phone || '+92 300 1234567'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Drill-down Sub-tabs */}
+            <div className="flex gap-2 border-b border-slate-100 pb-3 mb-4 text-xs font-bold">
+              {selectedUserDrillDown.role === 'restaurant' || selectedUserDrillDown.role === 'hostel' ? (
+                <>
+                  <button
+                    onClick={() => setDrillDownTab('posts')}
+                    className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${drillDownTab === 'posts' ? 'bg-navy-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    Their Food Surplus Posts ({listings.filter(l => l.user_id === selectedUserDrillDown.id || l.seller?.id === selectedUserDrillDown.id || l.seller?.name?.toLowerCase() === selectedUserDrillDown.name?.toLowerCase()).length})
+                  </button>
+                  <button
+                    onClick={() => setDrillDownTab('requests')}
+                    className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${drillDownTab === 'requests' ? 'bg-navy-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    Customer Requests Received ({transactions.filter(t => t.seller_id?.toLowerCase() === selectedUserDrillDown.name?.toLowerCase() || t.seller_id === selectedUserDrillDown.id).length})
+                  </button>
+                  <button
+                    onClick={() => setDrillDownTab('info')}
+                    className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${drillDownTab === 'info' ? 'bg-navy-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    Kitchen Verification & Details
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setDrillDownTab('requests')}
+                    className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${drillDownTab === 'requests' ? 'bg-navy-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    Their Rescued Food Claims ({transactions.filter(t => t.buyer_id?.toLowerCase() === selectedUserDrillDown.email?.toLowerCase() || t.buyer_id === selectedUserDrillDown.id).length})
+                  </button>
+                  <button
+                    onClick={() => setDrillDownTab('posts')}
+                    className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${drillDownTab === 'posts' ? 'bg-navy-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    Community Food Drops ({listings.filter(l => l.user_id === selectedUserDrillDown.id).length})
+                  </button>
+                  <button
+                    onClick={() => setDrillDownTab('info')}
+                    className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${drillDownTab === 'info' ? 'bg-navy-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    Account Credentials
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Sub-tab 1: FOOD POSTS */}
+            {drillDownTab === 'posts' && (
+              <div className="space-y-3">
+                {listings.filter(l => l.user_id === selectedUserDrillDown.id || l.seller?.id === selectedUserDrillDown.id || l.seller?.name?.toLowerCase() === selectedUserDrillDown.name?.toLowerCase()).length === 0 ? (
+                  <div className="card p-8 text-center text-slate-400 text-xs">
+                    No surplus food drops posted under this account yet.
+                  </div>
+                ) : (
+                  listings
+                    .filter(l => l.user_id === selectedUserDrillDown.id || l.seller?.id === selectedUserDrillDown.id || l.seller?.name?.toLowerCase() === selectedUserDrillDown.name?.toLowerCase())
+                    .map(post => (
+                      <div key={post.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/50">
+                        <div className="flex items-center gap-3">
+                          {post.photo_url ? (
+                            <img src={post.photo_url} alt="" className="h-10 w-10 rounded-lg object-cover" />
+                          ) : (
+                            <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-200 text-slate-500"><Utensils size={16} /></div>
+                          )}
+                          <div>
+                            <p className="font-bold text-navy-900 text-xs">{post.food_name}</p>
+                            <p className="text-[10px] text-slate-500">{post.quantity} {post.unit} · {formatPrice(post.price)}</p>
+                            <p className="text-[10px] text-slate-400">{post.location_text}</p>
+                          </div>
+                        </div>
+                        <div className="text-right space-x-1.5">
+                          <span className={`badge text-[10px] capitalize font-bold ${post.status === 'available' ? 'bg-brand-green-50 text-brand-green-dark' : 'bg-amber-50 text-amber-700'}`}>
+                            {post.status}
+                          </span>
+                          <button
+                            onClick={() => togglePostStatus(post.id, post.status === 'available' ? 'reserved' : 'available')}
+                            className="rounded-lg bg-white border border-slate-200 px-2.5 py-1 text-[10px] font-bold text-navy-900 hover:bg-slate-100 cursor-pointer"
+                          >
+                            Toggle Status
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            )}
+
+            {/* Sub-tab 2: REQUESTS / TRANSACTIONS */}
+            {drillDownTab === 'requests' && (
+              <div className="space-y-3">
+                {(selectedUserDrillDown.role === 'restaurant' || selectedUserDrillDown.role === 'hostel'
+                  ? transactions.filter(t => t.seller_id?.toLowerCase() === selectedUserDrillDown.name?.toLowerCase() || t.seller_id === selectedUserDrillDown.id)
+                  : transactions.filter(t => t.buyer_id?.toLowerCase() === selectedUserDrillDown.email?.toLowerCase() || t.buyer_id === selectedUserDrillDown.id)
+                ).length === 0 ? (
+                  <div className="card p-8 text-center text-slate-400 text-xs">
+                    No reservation requests recorded for this profile yet.
+                  </div>
+                ) : (
+                  (selectedUserDrillDown.role === 'restaurant' || selectedUserDrillDown.role === 'hostel'
+                    ? transactions.filter(t => t.seller_id?.toLowerCase() === selectedUserDrillDown.name?.toLowerCase() || t.seller_id === selectedUserDrillDown.id)
+                    : transactions.filter(t => t.buyer_id?.toLowerCase() === selectedUserDrillDown.email?.toLowerCase() || t.buyer_id === selectedUserDrillDown.id)
+                  ).map(tx => (
+                    <div key={tx.id} className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-white">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-navy-900">{tx.id}</span>
+                          <span className={`badge text-[10px] capitalize font-bold ${tx.status === 'completed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {tx.status}
+                          </span>
+                        </div>
+                        <p className="text-xs font-bold text-navy-900 mt-1">{tx.food_name}</p>
+                        <p className="text-[10px] text-slate-500">
+                          {selectedUserDrillDown.role === 'restaurant' ? `Rescuer: ${tx.buyer_id}` : `Kitchen: ${tx.seller_id}`} · {timeAgo(tx.created_at)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-extrabold text-brand-green-dark text-xs block">{formatPrice(tx.amount)}</span>
+                        <span className="text-[10px] uppercase text-slate-400">{tx.payment_method}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Sub-tab 3: INFO */}
+            {drillDownTab === 'info' && (
+              <div className="space-y-3 text-xs border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Account ID:</span>
+                  <span className="font-mono font-bold text-navy-900">{selectedUserDrillDown.id}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Registered Email:</span>
+                  <span className="font-bold text-navy-900">{selectedUserDrillDown.email}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Verified Contact Phone:</span>
+                  <span className="font-bold text-navy-900">{selectedUserDrillDown.phone || '+92 300 1234567'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Operating Address / City:</span>
+                  <span className="font-bold text-navy-900">{selectedUserDrillDown.location_text || 'Karachi, Pakistan'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Hygiene & Trust Score:</span>
+                  <span className="font-bold text-amber-600 flex items-center gap-1">
+                    <Star size={12} fill="#F59E0B" /> {selectedUserDrillDown.rating || '5.0'} / 5.0
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500">Member Since:</span>
+                  <span className="font-bold text-navy-900">{new Date(selectedUserDrillDown.created_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedUserDrillDown(null)}
+                className="btn-primary text-xs px-5 py-2.5 cursor-pointer"
+              >
+                Close Deep-Dive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INLINE AI FOOD QUALITY INSPECTION MODAL */}
+      {inspectingFood && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-navy-900/70 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg animate-scale-in rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button onClick={() => { setInspectingFood(null); setQualityResult(null); }} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100 cursor-pointer">
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-emerald-600 font-bold">
+                <Camera size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Gemini 2.0 Vision Inspection</p>
+                <h3 className="text-lg font-bold text-navy-900">{inspectingFood.food_name}</h3>
+              </div>
+            </div>
+
+            {inspectingFood.photo_url && (
+              <div className="h-44 w-full rounded-2xl overflow-hidden bg-slate-100 mb-4">
+                <img src={inspectingFood.photo_url} alt="" className="h-full w-full object-cover" />
+              </div>
+            )}
+
+            {qualityBusy ? (
+              <div className="py-12 text-center text-slate-500">
+                <Loader2 size={32} className="animate-spin text-brand-green mx-auto mb-3" />
+                <p className="text-xs font-semibold text-navy-900">Gemini 2.0 Flash is analyzing food freshness, packaging hygiene & presentation...</p>
+              </div>
+            ) : qualityResult ? (
+              <div className="space-y-3.5 text-xs">
+                <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-bold text-navy-900">Hygiene & Freshness Score:</span>
+                    <span className="text-lg font-extrabold text-brand-green-dark">{qualityResult.qualityScore}/100</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div className="h-full bg-brand-green rounded-full" style={{ width: `${qualityResult.qualityScore}%` }} />
+                  </div>
+                  <div className="mt-2 flex justify-between text-[11px] text-slate-500">
+                    <span>Trust Badge: <strong className="uppercase text-emerald-700">{qualityResult.trustBadge}</strong></span>
+                    <span>Freshness: <strong>{qualityResult.freshness}</strong></span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-100 p-3 bg-white space-y-1.5">
+                  <p className="font-bold text-navy-900">Hygiene Assessment:</p>
+                  <p className="text-slate-600 leading-relaxed">{qualityResult.hygiene}</p>
+                </div>
+
+                <div className="rounded-xl border border-slate-100 p-3 bg-white space-y-1.5">
+                  <p className="font-bold text-navy-900">AI Recommendation:</p>
+                  <p className="text-slate-600 leading-relaxed">{qualityResult.recommendation}</p>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => { setInspectingFood(null); setQualityResult(null); }}
+                className="btn-primary text-xs px-4 py-2 cursor-pointer"
+              >
+                Close Audit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD NEW SURPLUS DROP AS ADMIN MODAL */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-navy-900/70 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-md animate-scale-in rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setShowCreateModal(false)} className="absolute right-5 top-5 rounded-lg p-2 text-slate-400 hover:bg-slate-100 cursor-pointer">
               <X size={18} />
             </button>
             <div className="flex items-center gap-3 mb-5">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-navy-900 text-white font-bold text-xl">
-                {selectedUserModal.name?.slice(0, 1).toUpperCase()}
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-green-50 text-brand-green font-bold">
+                <Plus size={24} />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-navy-900">{selectedUserModal.name}</h3>
-                <p className="text-xs text-slate-500">{selectedUserModal.email}</p>
+                <h3 className="text-lg font-bold text-navy-900">Publish Surplus Food Drop</h3>
+                <p className="text-xs text-slate-500">Instantly seed a food drop into the live marketplace</p>
               </div>
             </div>
 
-            <div className="space-y-3 text-xs border-y border-slate-100 py-4 my-4">
-              <div className="flex justify-between">
-                <span className="text-slate-500">System Role:</span>
-                <span className="font-bold text-navy-900 capitalize">{selectedUserModal.role}</span>
+            <form onSubmit={handleCreatePost} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Food Item Name</label>
+                <input required value={newFoodName} onChange={e => setNewFoodName(e.target.value)} className="input-field" placeholder="e.g. Chicken Karahi" />
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Contact Phone:</span>
-                <span className="font-bold text-navy-900">{selectedUserModal.phone || '+92 300 1234567'}</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Quantity</label>
+                  <input required type="number" value={newFoodQty} onChange={e => setNewFoodQty(e.target.value)} className="input-field" />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Unit</label>
+                  <input required value={newFoodUnit} onChange={e => setNewFoodUnit(e.target.value)} className="input-field" placeholder="kg / portions" />
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Registered Location:</span>
-                <span className="font-bold text-navy-900">{selectedUserModal.location_text || 'Karachi, Pakistan'}</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Rescue Price (PKR)</label>
+                  <input required type="number" value={newFoodPrice} onChange={e => setNewFoodPrice(e.target.value)} className="input-field" />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Original Price (PKR)</label>
+                  <input required type="number" value={newFoodOrig} onChange={e => setNewFoodOrig(e.target.value)} className="input-field" />
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Trust Rating:</span>
-                <span className="font-bold text-amber-600 flex items-center gap-1">
-                  <Star size={13} fill="#F59E0B" /> {selectedUserModal.rating || '5.0'} ({selectedUserModal.rating_count || 10} reviews)
-                </span>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Kitchen / Provider</label>
+                <input required value={newFoodKitchen} onChange={e => setNewFoodKitchen(e.target.value)} className="input-field" />
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Membership Tier:</span>
-                <span className="font-bold text-navy-900 uppercase">{selectedUserModal.tier}</span>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Location / Address</label>
+                <input required value={newFoodLoc} onChange={e => setNewFoodLoc(e.target.value)} className="input-field" />
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Account Created:</span>
-                <span className="font-bold text-navy-900">{new Date(selectedUserModal.created_at).toLocaleDateString()}</span>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Image URL</label>
+                <input required value={newFoodImg} onChange={e => setNewFoodImg(e.target.value)} className="input-field" />
               </div>
-            </div>
 
-            <button
-              onClick={() => setSelectedUserModal(null)}
-              className="btn-primary w-full cursor-pointer"
-            >
-              Close Window
-            </button>
+              <div className="pt-3">
+                <button type="submit" className="btn-primary w-full py-3 text-xs font-bold cursor-pointer">
+                  Publish to Platform
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -3008,7 +4002,7 @@ function ProfilePage() {
               >
                 <option value="individual">Individual</option>
                 <option value="restaurant">Restaurant</option>
-                <option value="admin">Administrator</option>
+                {profile?.role === 'admin' && <option value="admin">Administrator</option>}
               </select>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
