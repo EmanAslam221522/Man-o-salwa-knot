@@ -79,7 +79,7 @@ function App() {
 }
 
 function AppShell() {
-  const { session, loading, signIn } = useAuth();
+  const { session, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   if (loading) return <div className="min-h-screen grid place-items-center bg-navy-900"><Loader2 className="animate-spin text-brand-green" size={32} /></div>;
@@ -87,9 +87,6 @@ function AppShell() {
     <Landing
       onSignIn={() => { setAuthMode('login'); setShowAuth(true); }}
       onSignUp={() => { setAuthMode('signup'); setShowAuth(true); }}
-      onAdminDemo={async () => {
-        await signIn('emanaslam543@gmail.com', 'admin123');
-      }}
       showAuth={showAuth}
       authMode={authMode}
       setAuthMode={setAuthMode}
@@ -102,7 +99,6 @@ function AppShell() {
 function Landing({
   onSignIn,
   onSignUp,
-  onAdminDemo,
   showAuth,
   authMode,
   setAuthMode,
@@ -110,7 +106,6 @@ function Landing({
 }: {
   onSignIn: () => void;
   onSignUp: () => void;
-  onAdminDemo: () => void;
   showAuth: boolean;
   authMode: 'login' | 'signup';
   setAuthMode: (m: 'login' | 'signup') => void;
@@ -127,13 +122,6 @@ function Landing({
             <a href="#trust" className="hover:text-white transition">Trust & safety</a>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={onAdminDemo}
-              className="flex items-center gap-1.5 rounded-xl border border-rose-400/40 bg-rose-500/20 px-3.5 py-2 text-xs font-bold text-rose-200 backdrop-blur transition hover:bg-rose-500/30 cursor-pointer shadow-sm"
-              title="1-Click Administrator Access for Evaluators"
-            >
-              <ShieldAlert size={14} className="text-rose-400" /> Admin Demo
-            </button>
             <button
               onClick={onSignIn}
               className="rounded-xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
@@ -166,12 +154,6 @@ function Landing({
               <div className="mt-9 flex flex-wrap gap-3 items-center">
                 <button onClick={onSignUp} className="btn-primary group">
                   Join the movement <ArrowRight size={18} className="transition group-hover:translate-x-1" />
-                </button>
-                <button
-                  onClick={onAdminDemo}
-                  className="inline-flex items-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/20 px-4 py-3 text-sm font-bold text-rose-200 hover:bg-rose-500/30 transition cursor-pointer"
-                >
-                  <ShieldAlert size={16} className="text-rose-400" /> Admin Console Demo
                 </button>
                 <a href="#how" className="inline-flex items-center gap-2 rounded-xl px-4 py-3 font-semibold text-white transition hover:bg-white/10 text-sm">
                   How it works <ChevronRight size={16} />
@@ -381,7 +363,6 @@ function AuthModal({
     const targetEmail = email.toLowerCase().trim();
 
     // ADMIN ACCESS LOGIC:
-    // Only emanaslam543@gmail.com (Main Admin) or verified/approved admins can log in as Admin.
     if (role === 'admin') {
       const isApproved = isApprovedAdmin(targetEmail);
       if (!isApproved) {
@@ -391,7 +372,7 @@ function AuthModal({
           targetEmail,
           'Requested Administrator login access via portal'
         );
-        // Send email alert to Main Admin (emanaslam543@gmail.com)
+        // Send email alert to Main Admin
         try {
           await notifySubscribers(undefined, undefined, {
             food_name: `[ADMIN ACCESS REQUEST] Verification Needed for ${name || targetEmail} (${targetEmail})`,
@@ -404,13 +385,13 @@ function AuthModal({
         } catch {}
 
         setBusy(false);
-        setError(`⚠️ Administrator Verification Required: Your access request has been sent to the Main Administrator (emanaslam543@gmail.com). You cannot log in as an Administrator until the Main Admin verifies and approves your account. In the meantime, you can sign in with role Individual or Restaurant.`);
+        setError(`⚠️ Administrator Verification Required: Your access request has been sent to the Main Administrator. You cannot log in as an Administrator until your account is verified and approved. In the meantime, you can sign in with role Individual or Restaurant.`);
         return;
       }
 
       // If approved or Main Admin:
       if (mode === 'signup') {
-        const result = await signUp(targetEmail, password, name || 'Eman Aslam (SuperAdmin)', 'admin');
+        const result = await signUp(targetEmail, password, name || 'Administrator', 'admin');
         setBusy(false);
         if (result.error) {
           setError(result.error);
@@ -478,7 +459,7 @@ function AuthModal({
             {[
               { id: 'individual', label: '👤 Individual', desc: 'Rescuer' },
               { id: 'restaurant', label: '🍴 Restaurant', desc: 'Kitchen' },
-              { id: 'admin', label: '🛡️ Admin', desc: 'SuperAdmin' },
+              { id: 'admin', label: '🛡️ Admin', desc: 'Administrator' },
             ].map(item => (
               <button
                 type="button"
@@ -487,9 +468,6 @@ function AuthModal({
                   setRole(item.id as any);
                   setError('');
                   setInfo('');
-                  if (item.id === 'admin' && !email) {
-                    setEmail('emanaslam543@gmail.com');
-                  }
                 }}
                 className={`rounded-xl border p-2.5 text-center transition cursor-pointer ${
                   role === item.id
@@ -508,7 +486,7 @@ function AuthModal({
           {role === 'admin' && (
             <div className="mt-2.5 rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-[11px] text-rose-800 leading-relaxed">
               <strong className="block font-bold mb-0.5">🛡️ Admin Verification Protection</strong>
-              Main Admin (<span className="font-mono font-semibold">emanaslam543@gmail.com</span>) has automatic root access. New admin applicants require verification by the Main Admin before admin login is permitted.
+              Administrator access is strictly restricted. New admin applicants require verification and approval by the Main Administrator before access is permitted.
             </div>
           )}
         </div>
@@ -549,67 +527,6 @@ function AuthModal({
             {mode === 'login' ? 'Sign up' : 'Sign in'}
           </button>
         </p>
-
-        <div className="mt-5 pt-4 border-t border-slate-100">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center mb-2">
-            Instant 1-Click Role Login (Demo & Testing)
-          </p>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={async () => {
-                setBusy(true);
-                await signIn('emanaslam543@gmail.com', 'admin123');
-                setBusy(false);
-                onClose();
-              }}
-              className="rounded-xl border border-rose-200 bg-rose-50 py-2 px-1 text-center font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer"
-              title="Main Admin emanaslam543@gmail.com"
-            >
-              🛡️ Main Admin
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                setBusy(true);
-                await signIn('nawab.kitchen@gmail.com', 'kitchen123');
-                setBusy(false);
-                onClose();
-              }}
-              className="rounded-xl border border-emerald-200 bg-emerald-50 py-2 px-1 text-center font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
-            >
-              🍴 Kitchen
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                setBusy(true);
-                await signIn('ahmad.raza@gmail.com', 'rescuer123');
-                setBusy(false);
-                onClose();
-              }}
-              className="rounded-xl border border-blue-200 bg-blue-50 py-2 px-1 text-center font-bold text-blue-700 hover:bg-blue-100 transition cursor-pointer"
-            >
-              👤 Rescuer
-            </button>
-          </div>
-
-          <div className="mt-2 text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('tariq.audit@salwa.org');
-                setPassword('audit123');
-                setRole('admin');
-                setError('');
-                setInfo('Simulating unverified applicant: Click "Verify & Sign in as Admin" to test the verification request notification!');
-              }}
-              className="text-[11px] font-semibold text-slate-500 hover:text-navy-900 underline cursor-pointer"
-            >
-              Test Unverified Admin Access Flow ➔
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -2308,8 +2225,8 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
       const defaultUsers: Profile[] = [
         {
           id: profile?.id || 'admin-root',
-          name: profile?.name || 'Eman Aslam (SuperAdmin)',
-          email: profile?.email || 'emanaslam543@gmail.com',
+          name: profile?.name || 'Main Administrator',
+          email: profile?.email || 'admin@manosalwa.internal',
           role: 'admin',
           tier: 'prime',
           rating: 5.0,
@@ -2524,7 +2441,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
 
       setAuditLogs([
         { id: '1', time: 'Just now', event: `Ledger Synced: ${mergedUsers.length} accounts, ${mergedListings.length} surplus drops, ${mergedTx.length} claims.`, status: 'ok' },
-        { id: '2', time: '3m ago', event: `Admin authentication validated for ${profile?.email || 'emanaslam543@gmail.com'}. Full access granted.`, status: 'ok' },
+        { id: '2', time: '3m ago', event: `Admin authentication validated for ${profile?.email || 'Platform Administrator'}. Full access granted.`, status: 'ok' },
         { id: '3', time: '6m ago', event: `Supabase Cloud database connection healthy & responsive.`, status: 'ok' },
         { id: '4', time: '11m ago', event: `Resend email broadcast service active for nearby subscriber radius matching.`, status: 'info' },
         { id: '5', time: '18m ago', event: `Gemini 2.0 Flash Vision inspection cache verified.`, status: 'info' },
@@ -2773,7 +2690,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
   function exportReport() {
     const report = {
       generatedAt: new Date().toISOString(),
-      admin: profile?.email || 'emanaslam543@gmail.com',
+      admin: profile?.email || 'admin@manosalwa.internal',
       metrics: {
         totalUsers: users.length,
         individuals: indCount,
@@ -2816,7 +2733,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               </div>
               <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">Platform Surveillance & Transparency Center</h1>
               <p className="mt-1 text-xs sm:text-sm text-blue-100/70">
-                Logged in: <strong className="text-white">{profile?.email || 'emanaslam543@gmail.com'}</strong> · Complete oversight of users, listings, claims & system integrity
+                Logged in: <strong className="text-white">{profile?.email || 'Platform Administrator'}</strong> · Complete oversight of users, listings, claims & system integrity
               </p>
             </div>
           </div>
@@ -2976,8 +2893,8 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                   <button
                     onClick={handleSendTestAlert}
                     disabled={testEmailBusy}
+                    title="Dispatch live verification alert to administrator"
                     className="flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 transition cursor-pointer shadow-xs"
-                    title="Send live verification alert to emanaslam543@gmail.com"
                   >
                     {testEmailBusy ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
                     <span>Dispatch Test Alert to Gmail</span>
@@ -3211,7 +3128,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                 <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
                   <p className="text-blue-100/60 font-medium">Notification Broadcast</p>
                   <p className="font-bold text-white mt-1">Resend Email Gateway</p>
-                  <p className="text-[11px] text-blue-300 mt-1 flex items-center gap-1">● Target: emanaslam543@gmail.com</p>
+                  <p className="text-[11px] text-blue-300 mt-1 flex items-center gap-1">● Administrator Broadcast: Active</p>
                 </div>
               </div>
             </div>
@@ -3588,7 +3505,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-100">
                   <span className="text-slate-500 font-medium block">Administrator Session:</span>
-                  <span className="font-mono text-navy-900 font-bold block mt-0.5">{profile?.email || 'emanaslam543@gmail.com'}</span>
+                  <span className="font-mono text-navy-900 font-bold block mt-0.5">{profile?.email || 'Platform Administrator (Active)'}</span>
                   <span className="text-emerald-600 font-bold text-[11px] mt-1 block">Full Read/Write Moderation Granted</span>
                 </div>
               </div>
@@ -4038,18 +3955,18 @@ function ProfilePage() {
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-slate-500">Sandbox recipient: <strong>emanaslam543@gmail.com</strong></span>
+              <span className="text-xs text-slate-500">Live email broadcast delivery active</span>
               <button
                 type="button"
                 onClick={async () => {
                   await notifySubscribers(undefined, session?.access_token, {
-                    food_name: 'Hot Chicken Biryani (Test Drop)',
+                    food_name: 'Hot Chicken Biryani (Live Test Alert)',
                     quantity: 6,
                     unit: 'portions',
                     price: 250,
                     location_text: 'Gulberg III, Lahore'
                   });
-                  alert('Test food alert successfully sent to emanaslam543@gmail.com! Please check your inbox.');
+                  alert('Test food alert sent! Please check your inbox.');
                 }}
                 className="rounded-lg bg-brand-green/10 border border-brand-green/30 px-3 py-1.5 text-xs font-bold text-brand-green-dark hover:bg-brand-green/20"
               >

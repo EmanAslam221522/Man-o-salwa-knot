@@ -1,4 +1,6 @@
 {
+  "buildCommand": "cd project && npm install && npm run build",
+  "outputDirectory": "project/dist",
   "rewrites": [
     { "source": "/api/email/notify", "destination": "/api/notify" },
     { "source": "/api/notify", "destination": "/api/notify" },

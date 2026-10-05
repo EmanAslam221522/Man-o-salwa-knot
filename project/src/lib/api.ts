@@ -87,6 +87,35 @@ export async function analyzeQuality(imageUrl: string, token?: string) {
 }
 
 export async function notifySubscribers(foodPostId?: string, token?: string, foodDetails?: any) {
+  // 1. Try Vercel Serverless Function directly
+  try {
+    const vResp = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ foodPostId, foodDetails }),
+    });
+    if (vResp.ok) {
+      const data = await vResp.json();
+      return data;
+    }
+  } catch (err) {
+    console.warn('Vercel serverless notify attempt:', err);
+  }
+
+  // 2. Try hosted Render backend
+  try {
+    const renderUrl = 'https://man-o-salwa-knot.onrender.com';
+    const resp = await fetch(`${renderUrl}/api/email/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ foodPostId, foodDetails }),
+    });
+    if (resp.ok) return await resp.json();
+  } catch (err) {
+    console.warn('Render notification failed:', err);
+  }
+
+  // 3. Fallback to API_URL
   try {
     const resp = await fetch(`${API_URL}/api/email/notify`, {
       method: 'POST',
