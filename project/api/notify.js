@@ -25,15 +25,22 @@ export default async function handler(req, res) {
   const price = foodDetails.price || 0;
   const location = foodDetails.location_text || foodDetails.location || 'System Notification';
   const seller = foodDetails.sellerName || foodDetails.seller_name || 'Platform Security';
+  const applicantEmail = foodDetails.applicant_email || (foodName.match(/\(([^)]+@[^)]+)\)/)?.[1]) || '';
+
+  const isAdminReq = foodName.includes('[ADMIN ACCESS REQUEST]') || Boolean(applicantEmail);
 
   const defaultKey = Buffer.from('cmVfMjJ6VVA4QlZfTWlMZlVFcVRSMXd2ZWl3cmpUR05XZFU0', 'base64').toString('utf8');
   const resendApiKey = process.env.RESEND_API_KEY || defaultKey;
 
+  const approveUrl = applicantEmail
+    ? `https://man-o-salwa-knot.vercel.app/api/admin/approve?email=${encodeURIComponent(applicantEmail)}`
+    : `https://man-o-salwa-knot.vercel.app`;
+
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; color: #001F3F; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 12px; overflow: hidden;">
       <div style="background-color: #001F3F; color: white; padding: 24px; text-align: center;">
-        <h2 style="margin: 0; color: #4CAF50;">ManOSalwaKnot Alert</h2>
-        <p style="margin: 8px 0 0 0; font-size: 14px; opacity: 0.85;">Surveillance & Notification Center</p>
+        <h2 style="margin: 0; color: #4CAF50;">${isAdminReq ? '🛡️ Administrator Access Alert' : 'ManOSalwaKnot Alert'}</h2>
+        <p style="margin: 8px 0 0 0; font-size: 14px; opacity: 0.85;">Surveillance & Authorization Center</p>
       </div>
       <div style="padding: 24px;">
         <h3 style="color: #001F3F; margin-top: 0;">${foodName}</h3>
@@ -42,10 +49,22 @@ export default async function handler(req, res) {
           <p style="margin: 4px 0;"><strong>Subject:</strong> ${foodName}</p>
           <p style="margin: 4px 0;"><strong>Details:</strong> ${quantity} ${unit}</p>
           <p style="margin: 4px 0;"><strong>Provider / Applicant:</strong> ${seller}</p>
-          <p style="margin: 4px 0;"><strong>Value:</strong> Rs ${price}</p>
+          ${price ? `<p style="margin: 4px 0;"><strong>Value:</strong> Rs ${price}</p>` : ''}
+          ${applicantEmail ? `<p style="margin: 4px 0;"><strong>Email:</strong> <span style="font-family: monospace;">${applicantEmail}</span></p>` : ''}
         </div>
-        <div style="text-align: center; margin-top: 30px;">
-          <a href="https://man-o-salwa-knot.vercel.app" style="background-color: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Open Platform Console</a>
+
+        ${isAdminReq && applicantEmail ? `
+        <div style="text-align: center; margin-top: 28px; margin-bottom: 12px;">
+          <a href="${approveUrl}" style="background-color: #4CAF50; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; display: inline-block; box-shadow: 0 4px 10px rgba(76,175,80,0.3);">
+            🔓 Grant Admin Access (1-Click Approve)
+          </a>
+        </div>
+        ` : ''}
+
+        <div style="text-align: center; margin-top: ${isAdminReq && applicantEmail ? '12px' : '28px'};">
+          <a href="https://man-o-salwa-knot.vercel.app" style="${isAdminReq && applicantEmail ? 'color: #64748b; font-size: 13px; text-decoration: underline;' : 'background-color: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;'}">
+            Open Platform Console
+          </a>
         </div>
       </div>
       <div style="background-color: #f3f4f6; color: #6b7280; padding: 16px; text-align: center; font-size: 12px;">

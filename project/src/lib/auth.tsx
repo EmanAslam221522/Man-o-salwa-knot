@@ -27,14 +27,63 @@ export function isApprovedAdmin(email?: string | null): boolean {
   return list.some(e => e.toLowerCase().trim() === clean);
 }
 
-export function approveAdminEmail(email: string): void {
+const API_BASE = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'https://man-o-salwa-knot.vercel.app'
+  : '';
+
+export async function checkAdminApprovalRemote(email: string): Promise<boolean> {
+  if (!email) return false;
+  const clean = email.toLowerCase().trim();
+  if (clean === MAIN_ADMIN_EMAIL) return true;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/status?email=${encodeURIComponent(clean)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.approved) {
+        const list = getApprovedAdminEmails();
+        if (!list.map(e => e.toLowerCase()).includes(clean)) {
+          list.push(clean);
+          localStorage.setItem('salwa_approved_admins', JSON.stringify(list));
+        }
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('checkAdminApprovalRemote error:', err);
+  }
+  return false;
+}
+
+export async function fetchAdminRequests(): Promise<Array<{
+  id: string;
+  name: string;
+  email: string;
+  reason: string;
+  requestedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+}>> {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/requests`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.requests) && data.requests.length > 0) {
+        localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(data.requests));
+        return data.requests;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchAdminRequests error:', err);
+  }
+  return getPendingAdminRequests();
+}
+
+export async function approveAdminEmail(email: string): Promise<void> {
   const clean = email.toLowerCase().trim();
   const list = getApprovedAdminEmails();
   if (!list.map(e => e.toLowerCase()).includes(clean)) {
     list.push(clean);
     localStorage.setItem('salwa_approved_admins', JSON.stringify(list));
   }
-  // Also update pending requests
   try {
     const raw = localStorage.getItem('salwa_pending_admin_requests');
     if (raw) {
@@ -43,9 +92,19 @@ export function approveAdminEmail(email: string): void {
       localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(updated));
     }
   } catch {}
+
+  try {
+    await fetch(`${API_BASE}/api/admin/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: clean }),
+    });
+  } catch (err) {
+    console.warn('Remote approve call error:', err);
+  }
 }
 
-export function revokeAdminEmail(email: string): void {
+export async function revokeAdminEmail(email: string): Promise<void> {
   const clean = email.toLowerCase().trim();
   if (clean === MAIN_ADMIN_EMAIL) return; // Cannot revoke permanent SuperAdmin
   const list = getApprovedAdminEmails().filter(e => e.toLowerCase().trim() !== clean);
@@ -58,6 +117,16 @@ export function revokeAdminEmail(email: string): void {
       localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(updated));
     }
   } catch {}
+
+  try {
+    await fetch(`${API_BASE}/api/admin/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: clean }),
+    });
+  } catch (err) {
+    console.warn('Remote reject call error:', err);
+  }
 }
 
 export function getPendingAdminRequests(): Array<{
@@ -72,44 +141,45 @@ export function getPendingAdminRequests(): Array<{
     const raw = localStorage.getItem('salwa_pending_admin_requests');
     if (raw) return JSON.parse(raw);
   } catch {}
-  const initial = [
-    {
-      id: 'req-sample-1',
-      name: 'Tariq Mehmood',
-      email: 'tariq.audit@salwa.org',
-      reason: 'Regional Food Safety Inspector requesting Administrator transparency access.',
-      requestedAt: new Date(Date.now() - 4 * 3600000).toISOString(),
-      status: 'pending' as const
-    }
-  ];
-  try {
-    localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(initial));
-  } catch {}
-  return initial;
+  return [];
 }
 
-export function submitAdminRequest(name: string, email: string, reason?: string) {
+export async function submitAdminRequest(name: string, email: string, reason?: string) {
   const clean = email.toLowerCase().trim();
   const reqs = getPendingAdminRequests();
   const existing = reqs.find(r => r.email.toLowerCase().trim() === clean);
+  let resultReq;
   if (existing) {
     existing.status = 'pending';
     existing.requestedAt = new Date().toISOString();
     if (reason) existing.reason = reason;
     localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(reqs));
-    return existing;
+    resultReq = existing;
+  } else {
+    const newReq = {
+      id: 'req-' + Date.now(),
+      name: name || clean.split('@')[0],
+      email: clean,
+      reason: reason || 'Requested Administrator access via login portal.',
+      requestedAt: new Date().toISOString(),
+      status: 'pending' as const
+    };
+    reqs.unshift(newReq);
+    localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(reqs));
+    resultReq = newReq;
   }
-  const newReq = {
-    id: 'req-' + Date.now(),
-    name: name || clean.split('@')[0],
-    email: clean,
-    reason: reason || 'Requested Administrator access via login portal.',
-    requestedAt: new Date().toISOString(),
-    status: 'pending' as const
-  };
-  reqs.unshift(newReq);
-  localStorage.setItem('salwa_pending_admin_requests', JSON.stringify(reqs));
-  return newReq;
+
+  try {
+    await fetch(`${API_BASE}/api/admin/requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name || clean.split('@')[0], email: clean, reason }),
+    });
+  } catch (err) {
+    console.warn('Remote submitAdminRequest error:', err);
+  }
+
+  return resultReq;
 }
 
 interface AuthState {

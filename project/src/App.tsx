@@ -16,7 +16,9 @@ import {
   revokeAdminEmail,
   getPendingAdminRequests,
   submitAdminRequest,
-  getApprovedAdminEmails
+  getApprovedAdminEmails,
+  checkAdminApprovalRemote,
+  fetchAdminRequests
 } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import type { FoodPost, FoodPostWithSeller, Profile, Transaction } from '@/lib/types';
@@ -364,15 +366,19 @@ function AuthModal({
 
     // ADMIN ACCESS LOGIC:
     if (role === 'admin') {
-      const isApproved = isApprovedAdmin(targetEmail);
+      let isApproved = isApprovedAdmin(targetEmail);
       if (!isApproved) {
-        // Submit admin verification request to Main Admin
-        submitAdminRequest(
+        setBusy(true);
+        isApproved = await checkAdminApprovalRemote(targetEmail);
+      }
+      if (!isApproved) {
+        // Submit admin verification request to Main Admin (persists to Redis & dispatches email alert with 1-click approve button)
+        await submitAdminRequest(
           name || targetEmail.split('@')[0],
           targetEmail,
           'Requested Administrator login access via portal'
         );
-        // Send email alert to Main Admin
+        // Also trigger secondary notification endpoint
         try {
           await notifySubscribers(undefined, undefined, {
             food_name: `[ADMIN ACCESS REQUEST] Verification Needed for ${name || targetEmail} (${targetEmail})`,
@@ -380,7 +386,8 @@ function AuthModal({
             unit: 'Admin Authorization Ticket',
             price: 0,
             location_text: `Applicant: ${targetEmail} requested Administrator privileges. Please verify in the Admin Console.`,
-            sellerName: name || 'Admin Applicant'
+            sellerName: name || 'Admin Applicant',
+            applicant_email: targetEmail
           });
         } catch {}
 
@@ -534,81 +541,221 @@ function AuthModal({
 
 function Workspace() {
   const { profile, updateRole, signOut } = useAuth();
-  const [view, setView] = useState<View>(() => (profile?.role === 'admin' ? 'admin' : 'home'));
+  const isAdmin = profile?.role === 'admin';
+  const [view, setView] = useState<View>(() => (isAdmin ? 'admin' : 'home'));
+  const [adminSubTab, setAdminSubTab] = useState<'overview' | 'approvals' | 'users' | 'listings' | 'requests' | 'chats' | 'audit'>('overview');
+  const [previewConsumerMode, setPreviewConsumerMode] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [selectedPost, setSelectedPost] = useState<FoodPostWithSeller | null>(null);
+  const [approvalToast, setApprovalToast] = useState<string | null>(null);
+  const [pendingReqCount, setPendingReqCount] = useState<number>(0);
+
+  // Check URL query parameters for admin approval redirection from Gmail
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const approvedEmail = params.get('admin_approved');
+      if (approvedEmail) {
+        setApprovalToast(`🎉 Access Granted: ${approvedEmail} is now verified as an Administrator!`);
+        if (isAdmin) {
+          setView('admin');
+          setAdminSubTab('approvals');
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    } catch {}
+  }, [isAdmin]);
+
+  // Load pending admin requests count for sidebar badge
+  useEffect(() => {
+    if (isAdmin) {
+      fetchAdminRequests().then(reqs => {
+        if (reqs) {
+          setPendingReqCount(reqs.filter(r => r.status === 'pending').length);
+        }
+      });
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
-    if (profile?.role === 'admin' && view === 'home') {
+    if (isAdmin && view === 'home' && !previewConsumerMode) {
       setView('admin');
     }
-  }, [profile?.role]);
+  }, [isAdmin, previewConsumerMode]);
 
   return (
     <div className="min-h-screen bg-[#f6f8fa] text-navy-900">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-navy-900 px-4 py-6 transition-transform lg:translate-x-0 ${mobileNav ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="px-3"><Brand light /></div>
-        <div className="mt-10 flex-1 space-y-1">
-          {([
-            { id: 'home', label: 'Overview', icon: <Compass size={19} /> },
-            { id: 'discover', label: 'Discover food', icon: <Search size={19} /> },
-            { id: 'matchmaker', label: 'AI Matchmaker', icon: <Sparkles size={19} /> },
-            { id: 'post', label: 'Post surplus', icon: <Plus size={19} /> },
-            { id: 'assistant', label: 'Ask Salwa', icon: <Bot size={19} /> },
-            { id: 'history', label: 'My activity', icon: <Package size={19} /> },
-            { id: 'quality', label: 'Food quality AI', icon: <Shield size={19} /> },
-            { id: 'workspace', label: 'Business chat', icon: <MessageSquare size={19} /> },
-            ...(profile?.role === 'admin' ? [{ id: 'admin' as View, label: 'Admin Console', icon: <ShieldAlert size={19} /> }] : []),
-            { id: 'profile', label: 'Profile', icon: <UserRound size={19} /> },
-          ] as { id: View; label: string; icon: ReactNode }[])
-            .map(item => (
-              <button
-                key={item.id}
-                onClick={() => { setView(item.id); setMobileNav(false); }}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${view === item.id ? 'bg-white/10 text-white' : 'text-blue-100/55 hover:bg-white/5 hover:text-white'}`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-                {item.id === 'assistant' && <span className="ml-auto rounded-full bg-brand-green px-1.5 py-0.5 text-[10px] font-bold text-white">AI</span>}
-                {item.id === 'matchmaker' && <span className="ml-auto rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">New</span>}
-                {item.id === 'quality' && <span className="ml-auto rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">Vision</span>}
-                {item.id === 'admin' && <span className="ml-auto rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">Admin</span>}
-              </button>
-            ))}
-        </div>
-        <div className="border-t border-white/10 pt-4 space-y-2.5">
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-brand-green text-sm font-bold text-white">
-              {profile?.name?.slice(0, 1).toUpperCase() ?? 'U'}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white">{profile?.name ?? 'Rescuer'}</p>
-              <p className="text-xs capitalize text-blue-100/50">{profile?.role ?? 'individual'} · {profile?.tier ?? 'free'}</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-            <span className="text-[11px] font-medium text-blue-100/60">Switch Role:</span>
-            <select
-              value={profile?.role || 'individual'}
-              onChange={e => {
-                const nextRole = e.target.value as any;
-                updateRole(nextRole);
-                if (nextRole === 'admin') setView('admin');
-              }}
-              className="rounded-lg bg-navy-900 px-2 py-1 text-[11px] font-semibold text-brand-green-light border border-white/20 focus:outline-none cursor-pointer"
-            >
-              <option value="individual">Individual</option>
-              <option value="restaurant">Restaurant</option>
-              {profile?.role === 'admin' && <option value="admin">Administrator</option>}
-            </select>
+      {/* PREVIEW CONSUMER VIEW BANNER */}
+      {isAdmin && previewConsumerMode && (
+        <div className="sticky top-0 z-50 flex items-center justify-between bg-navy-900 border-b border-rose-500/40 px-4 py-2.5 text-xs text-white shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="font-semibold text-rose-300">Administrator Simulation:</span>
+            <span className="text-slate-300">Viewing marketplace as a regular user</span>
           </div>
           <button
-            onClick={signOut}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-500/20 hover:text-white"
+            onClick={() => { setPreviewConsumerMode(false); setView('admin'); }}
+            className="rounded-lg bg-rose-600 px-3.5 py-1 text-xs font-bold text-white hover:bg-rose-700 transition cursor-pointer flex items-center gap-1.5 shadow-xs"
           >
-            <LogOut size={13} /> Sign out
+            <span>Return to Admin Workspace</span>
+            <ArrowRight size={13} />
           </button>
         </div>
+      )}
+
+      {/* APPROVAL TOAST NOTIFICATION */}
+      {approvalToast && (
+        <div className="fixed top-20 right-6 z-50 flex items-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-bold text-white shadow-xl animate-fade-in-up">
+          <CheckCircle size={18} />
+          <span>{approvalToast}</span>
+          <button onClick={() => setApprovalToast(null)} className="ml-2 hover:opacity-75 cursor-pointer">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-navy-900 px-4 py-6 transition-transform lg:translate-x-0 ${mobileNav ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* DEDICATED ADMIN SIDEBAR */}
+        {isAdmin && !previewConsumerMode ? (
+          <>
+            <div className="px-3">
+              <Brand light />
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-rose-500/15 border border-rose-500/30 px-3 py-1.5">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-rose-300">
+                  🛡️ Admin Workspace
+                </span>
+                <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+            </div>
+
+            <div className="mt-6 flex-1 space-y-1 overflow-y-auto">
+              {[
+                { id: 'overview', label: 'Surveillance Hub', icon: <ShieldAlert size={19} />, action: () => { setView('admin'); setAdminSubTab('overview'); } },
+                { id: 'approvals', label: 'Admin Approvals', icon: <UserCheck size={19} />, badge: pendingReqCount, action: () => { setView('admin'); setAdminSubTab('approvals'); } },
+                { id: 'users', label: 'Accounts Ledger', icon: <Users size={19} />, action: () => { setView('admin'); setAdminSubTab('users'); } },
+                { id: 'listings', label: 'Surplus Inventory', icon: <Utensils size={19} />, action: () => { setView('admin'); setAdminSubTab('listings'); } },
+                { id: 'requests', label: 'Claims Ledger', icon: <ReceiptText size={19} />, action: () => { setView('admin'); setAdminSubTab('requests'); } },
+                { id: 'chats', label: 'Coordination Chats', icon: <MessageSquare size={19} />, action: () => { setView('admin'); setAdminSubTab('chats'); } },
+                { id: 'quality', label: 'Food Quality AI', icon: <Shield size={19} />, action: () => setView('quality') },
+                { id: 'audit', label: 'Audit & Health', icon: <Activity size={19} />, action: () => { setView('admin'); setAdminSubTab('audit'); } },
+                { id: 'profile', label: 'Admin Profile', icon: <UserRound size={19} />, action: () => setView('profile') },
+              ].map(item => {
+                const isActive = (item.id === 'quality' && view === 'quality') ||
+                                 (item.id === 'profile' && view === 'profile') ||
+                                 (view === 'admin' && adminSubTab === item.id);
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { item.action(); setMobileNav(false); }}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition cursor-pointer ${isActive ? 'bg-rose-600 text-white font-bold shadow-md' : 'text-blue-100/65 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                    {item.id === 'approvals' && pendingReqCount > 0 && (
+                      <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-extrabold text-white animate-pulse">
+                        {pendingReqCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="border-t border-white/10 pt-4 space-y-2.5">
+              <button
+                onClick={() => { setPreviewConsumerMode(true); setView('home'); }}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-xs font-semibold text-blue-100/70 hover:bg-white/10 hover:text-white transition cursor-pointer"
+              >
+                <Eye size={14} /> Preview Consumer View
+              </button>
+              <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
+                <div className="grid h-9 w-9 place-items-center rounded-full bg-rose-600 text-sm font-bold text-white">
+                  {profile?.name?.slice(0, 1).toUpperCase() ?? 'A'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white">{profile?.name ?? 'Administrator'}</p>
+                  <p className="text-xs text-rose-300 font-semibold uppercase tracking-wider">SuperAdmin</p>
+                </div>
+              </div>
+              <button
+                onClick={signOut}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-500/20 hover:text-white cursor-pointer"
+              >
+                <LogOut size={13} /> Sign out
+              </button>
+            </div>
+          </>
+        ) : (
+          /* STANDARD CONSUMER SIDEBAR */
+          <>
+            <div className="px-3"><Brand light /></div>
+            <div className="mt-10 flex-1 space-y-1 overflow-y-auto">
+              {([
+                { id: 'home', label: 'Overview', icon: <Compass size={19} /> },
+                { id: 'discover', label: 'Discover food', icon: <Search size={19} /> },
+                { id: 'matchmaker', label: 'AI Matchmaker', icon: <Sparkles size={19} /> },
+                { id: 'post', label: 'Post surplus', icon: <Plus size={19} /> },
+                { id: 'assistant', label: 'Ask Salwa', icon: <Bot size={19} /> },
+                { id: 'history', label: 'My activity', icon: <Package size={19} /> },
+                { id: 'quality', label: 'Food quality AI', icon: <Shield size={19} /> },
+                { id: 'workspace', label: 'Business chat', icon: <MessageSquare size={19} /> },
+                ...(isAdmin ? [{ id: 'admin' as View, label: 'Admin Workspace', icon: <ShieldAlert size={19} /> }] : []),
+                { id: 'profile', label: 'Profile', icon: <UserRound size={19} /> },
+              ] as { id: View; label: string; icon: ReactNode }[])
+                .map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      if (item.id === 'admin') setPreviewConsumerMode(false);
+                      setView(item.id);
+                      setMobileNav(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition cursor-pointer ${view === item.id ? 'bg-white/10 text-white' : 'text-blue-100/55 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                    {item.id === 'assistant' && <span className="ml-auto rounded-full bg-brand-green px-1.5 py-0.5 text-[10px] font-bold text-white">AI</span>}
+                    {item.id === 'matchmaker' && <span className="ml-auto rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">New</span>}
+                    {item.id === 'quality' && <span className="ml-auto rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">Vision</span>}
+                    {item.id === 'admin' && <span className="ml-auto rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">Admin</span>}
+                  </button>
+                ))}
+            </div>
+            <div className="border-t border-white/10 pt-4 space-y-2.5">
+              <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
+                <div className="grid h-9 w-9 place-items-center rounded-full bg-brand-green text-sm font-bold text-white">
+                  {profile?.name?.slice(0, 1).toUpperCase() ?? 'U'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white">{profile?.name ?? 'Rescuer'}</p>
+                  <p className="text-xs capitalize text-blue-100/50">{profile?.role ?? 'individual'} · {profile?.tier ?? 'free'}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+                <span className="text-[11px] font-medium text-blue-100/60">Switch Role:</span>
+                <select
+                  value={profile?.role || 'individual'}
+                  onChange={e => {
+                    const nextRole = e.target.value as any;
+                    updateRole(nextRole);
+                    if (nextRole === 'admin') setView('admin');
+                  }}
+                  className="rounded-lg bg-navy-900 px-2 py-1 text-[11px] font-semibold text-brand-green-light border border-white/20 focus:outline-none cursor-pointer"
+                >
+                  <option value="individual">Individual</option>
+                  <option value="restaurant">Restaurant</option>
+                  {isAdmin && <option value="admin">Administrator</option>}
+                </select>
+              </div>
+              <button
+                onClick={signOut}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-500/20 hover:text-white cursor-pointer"
+              >
+                <LogOut size={13} /> Sign out
+              </button>
+            </div>
+          </>
+        )}
       </aside>
 
       <div className="lg:pl-64">
@@ -617,21 +764,28 @@ function Workspace() {
             <Menu size={22} />
           </button>
           <div className="hidden text-sm text-slate-500 sm:block">
-            {view === 'home' ? `Good day, ${profile?.name?.split(' ')[0] ?? 'there'}` :
+            {view === 'admin' ? (
+              adminSubTab === 'overview' ? 'Surveillance Hub & High-Level Ledger' :
+              adminSubTab === 'approvals' ? 'Administrator Verification & Approvals Gateway' :
+              adminSubTab === 'users' ? 'All User Accounts (Individuals & Restaurants)' :
+              adminSubTab === 'listings' ? 'Food Surplus Inspection & Inventory' :
+              adminSubTab === 'requests' ? 'Claims & Orders Verification Ledger' :
+              adminSubTab === 'chats' ? 'Real-Time Business Coordination Chats' : 'System Health & Audit Logs'
+            ) :
+             view === 'home' ? `Good day, ${profile?.name?.split(' ')[0] ?? 'there'}` :
              view === 'discover' ? 'Live Surplus Feed & Map' :
              view === 'matchmaker' ? 'AI Budget & Nutrition Matchmaker' :
              view === 'post' ? 'Share surplus food' :
              view === 'assistant' ? 'Salwa Multi-Agent Assistant' :
              view === 'history' ? 'Your rescue activity & orders' :
              view === 'quality' ? 'Food Quality & Hygiene AI Inspector' :
-             view === 'workspace' ? 'Business Coordination Hub' :
-             view === 'admin' ? 'Administrator Surveillance & Transparency Center' : 'Your Profile'}
+             view === 'workspace' ? 'Business Coordination Hub' : 'Your Profile'}
           </div>
           <div className="ml-auto flex items-center gap-3">
             <CurrencySwitcher />
             <button
               onClick={signOut}
-              className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700"
+              className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700 cursor-pointer"
               title="Sign out of your account"
             >
               <LogOut size={14} />
@@ -645,7 +799,13 @@ function Workspace() {
         </header>
 
         <main className="section-pad py-7">
-          <ViewContent view={view} setView={setView} onSelectFood={post => setSelectedPost(post)} />
+          <ViewContent
+            view={view}
+            setView={setView}
+            onSelectFood={post => setSelectedPost(post)}
+            adminSubTab={adminSubTab}
+            setAdminSubTab={setAdminSubTab}
+          />
         </main>
       </div>
 
@@ -663,11 +823,15 @@ function Workspace() {
 function ViewContent({
   view,
   setView,
-  onSelectFood
+  onSelectFood,
+  adminSubTab,
+  setAdminSubTab,
 }: {
   view: View;
   setView: (v: View) => void;
   onSelectFood: (post: FoodPostWithSeller) => void;
+  adminSubTab?: 'overview' | 'approvals' | 'users' | 'listings' | 'requests' | 'chats' | 'audit';
+  setAdminSubTab?: (t: any) => void;
 }) {
   if (view === 'home') return <Home setView={setView} onSelectFood={onSelectFood} />;
   if (view === 'discover') return <Discover onSelectFood={onSelectFood} />;
@@ -677,7 +841,7 @@ function ViewContent({
   if (view === 'history') return <History onSelectFood={onSelectFood} />;
   if (view === 'quality') return <FoodQualityAnalyzer />;
   if (view === 'workspace') return <BusinessWorkspace />;
-  if (view === 'admin') return <AdminDashboard onSelectFood={onSelectFood} />;
+  if (view === 'admin') return <AdminDashboard onSelectFood={onSelectFood} initialTab={adminSubTab} onTabChange={setAdminSubTab} />;
   return <ProfilePage />;
 }
 
@@ -2171,9 +2335,29 @@ function BusinessWorkspace() {
   );
 }
 
-function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSeller) => void }) {
+function AdminDashboard({
+  onSelectFood,
+  initialTab = 'overview',
+  onTabChange
+}: {
+  onSelectFood: (post: FoodPostWithSeller) => void;
+  initialTab?: 'overview' | 'approvals' | 'users' | 'listings' | 'requests' | 'chats' | 'audit';
+  onTabChange?: (t: any) => void;
+}) {
   const { profile } = useAuth();
-  const [tab, setTab] = useState<'overview' | 'approvals' | 'users' | 'listings' | 'requests' | 'chats' | 'audit'>('overview');
+  const [tab, setTab] = useState<'overview' | 'approvals' | 'users' | 'listings' | 'requests' | 'chats' | 'audit'>(initialTab);
+
+  useEffect(() => {
+    if (initialTab && initialTab !== tab) {
+      setTab(initialTab);
+    }
+  }, [initialTab]);
+
+  function changeTab(nextTab: any) {
+    setTab(nextTab);
+    onTabChange?.(nextTab);
+  }
+
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'individual' | 'restaurant' | 'admin'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'reserved' | 'sold'>('all');
@@ -2220,6 +2404,16 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
   async function loadData() {
     setRefreshing(true);
     try {
+      // 0. Fetch latest admin requests from Redis
+      try {
+        const reqs = await fetchAdminRequests();
+        if (reqs && reqs.length) {
+          setAdminRequests(reqs);
+        }
+      } catch (err) {
+        console.warn('Could not fetch remote admin requests:', err);
+      }
+
       // 1. Fetch Users
       const { data: supaProfiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       const defaultUsers: Profile[] = [
@@ -2499,8 +2693,8 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
   }
 
   async function handleApproveReq(req: any) {
-    approveAdminEmail(req.email);
-    setAdminRequests(getPendingAdminRequests());
+    await approveAdminEmail(req.email);
+    setAdminRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
     setApprovedAdmins(getApprovedAdminEmails());
     setAuditLogs(prev => [
       { id: Date.now().toString(), time: 'Just now', event: `SuperAdmin approval granted to ${req.email}. Account promoted to Administrator.`, status: 'ok' },
@@ -2513,16 +2707,16 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
         quantity: 1,
         unit: 'Admin Access Granted',
         price: 0,
-        location_text: `Your administrator request has been approved by Main Admin (${MAIN_ADMIN_EMAIL}). You can now log in as Administrator.`,
-        sellerName: 'Main SuperAdmin'
+        location_text: `Your administrator request has been approved. You can now log in as Administrator.`,
+        sellerName: 'Main Administrator'
       });
     } catch {}
     setAdminFeedback(`Approved ${req.email}! They are now verified and can sign in with Administrator privileges.`);
   }
 
-  function handleRejectReq(req: any) {
-    revokeAdminEmail(req.email);
-    setAdminRequests(getPendingAdminRequests());
+  async function handleRejectReq(req: any) {
+    await revokeAdminEmail(req.email);
+    setAdminRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
     setAuditLogs(prev => [
       { id: Date.now().toString(), time: 'Just now', event: `Admin request for ${req.email} was rejected by SuperAdmin.`, status: 'warn' },
       ...prev
@@ -2530,12 +2724,12 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
     setAdminFeedback(`Rejected request for ${req.email}.`);
   }
 
-  function handleRevokeAdmin(emailToRevoke: string) {
+  async function handleRevokeAdmin(emailToRevoke: string) {
     if (emailToRevoke.toLowerCase() === MAIN_ADMIN_EMAIL) {
       alert('Cannot revoke Main Super Administrator!');
       return;
     }
-    revokeAdminEmail(emailToRevoke);
+    await revokeAdminEmail(emailToRevoke);
     setApprovedAdmins(getApprovedAdminEmails());
     setAdminRequests(getPendingAdminRequests());
     setAuditLogs(prev => [
@@ -2820,7 +3014,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
             ].map(t => (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id as any)}
+                onClick={() => changeTab(t.id as any)}
                 className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition whitespace-nowrap cursor-pointer ${tab === t.id ? 'bg-navy-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
               >
                 {t.icon}
@@ -3056,11 +3250,37 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
         {/* TAB 1: OVERVIEW */}
         {tab === 'overview' && (
           <div className="pt-6 space-y-6">
+            {/* PENDING APPROVALS ALERT BANNER */}
+            {pendingCount > 0 && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 shadow-sm flex items-center justify-between flex-wrap gap-3 animate-fade-in-up">
+                <div className="flex items-center gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500 text-white font-bold animate-pulse">
+                    <UserCheck size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-950">
+                      {pendingCount} Administrator Access Verification Request{pendingCount > 1 ? 's' : ''} Pending
+                    </h4>
+                    <p className="text-xs text-amber-800">
+                      New applicant accounts are awaiting your approval before administrator privileges are unlocked.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => changeTab('approvals')}
+                  className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+                >
+                  <span>Review & Action Now</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            )}
+
             <div className="grid gap-6 lg:grid-cols-2">
               <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
                 <h3 className="font-bold text-navy-900 text-sm mb-4 flex items-center justify-between">
                   <span>Recent Platform Claims & Reservations</span>
-                  <button onClick={() => setTab('requests')} className="text-xs text-brand-green-dark hover:underline font-semibold cursor-pointer">View All ({transactions.length})</button>
+                  <button onClick={() => changeTab('requests')} className="text-xs text-brand-green-dark hover:underline font-semibold cursor-pointer">View All ({transactions.length})</button>
                 </h3>
                 <div className="space-y-3">
                   {transactions.slice(0, 4).map(tx => (
@@ -3085,7 +3305,7 @@ function AdminDashboard({ onSelectFood }: { onSelectFood: (post: FoodPostWithSel
               <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
                 <h3 className="font-bold text-navy-900 text-sm mb-4 flex items-center justify-between">
                   <span>Active Surplus Drops Under Monitoring</span>
-                  <button onClick={() => setTab('listings')} className="text-xs text-brand-green-dark hover:underline font-semibold cursor-pointer">View All ({listings.length})</button>
+                  <button onClick={() => changeTab('listings')} className="text-xs text-brand-green-dark hover:underline font-semibold cursor-pointer">View All ({listings.length})</button>
                 </h3>
                 <div className="space-y-3">
                   {listings.slice(0, 4).map(p => (
